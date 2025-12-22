@@ -69,6 +69,9 @@ export class ProwlarrService {
         'X-Api-Key': this.apiKey,
       },
       timeout: 30000, // 30 seconds
+      paramsSerializer: {
+        indexes: null, // Use repeat format: indexerIds=1&indexerIds=2 (not indexerIds[0]=1)
+      },
     });
   }
 
@@ -89,8 +92,9 @@ export class ProwlarrService {
       };
 
       // Filter by specific indexers if provided
+      // Pass array directly - axios will serialize as indexerIds=1&indexerIds=2&indexerIds=3
       if (filters?.indexerIds && filters.indexerIds.length > 0) {
-        params.indexerIds = filters.indexerIds.join(',');
+        params.indexerIds = filters.indexerIds;
       }
 
       const response = await this.client.get('/search', { params });
