@@ -14,6 +14,7 @@ interface DownloadClientStepProps {
   downloadClientUrl: string;
   downloadClientUsername: string;
   downloadClientPassword: string;
+  disableSSLVerify: boolean;
   remotePathMappingEnabled: boolean;
   remotePath: string;
   localPath: string;
@@ -27,6 +28,7 @@ export function DownloadClientStep({
   downloadClientUrl,
   downloadClientUsername,
   downloadClientPassword,
+  disableSSLVerify,
   remotePathMappingEnabled,
   remotePath,
   localPath,
@@ -54,6 +56,7 @@ export function DownloadClientStep({
           url: downloadClientUrl,
           username: downloadClientUsername,
           password: downloadClientPassword,
+          disableSSLVerify,
           remotePathMappingEnabled,
           remotePath,
           localPath,
@@ -184,6 +187,33 @@ export function DownloadClientStep({
             autoComplete="current-password"
           />
         </div>
+
+        {/* SSL Verification Toggle */}
+        {downloadClientUrl.startsWith('https') && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="disable-ssl-verify-setup"
+                checked={disableSSLVerify}
+                onChange={(e) => onUpdate('disableSSLVerify', e.target.checked)}
+                className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+              />
+              <div className="flex-1">
+                <label
+                  htmlFor="disable-ssl-verify-setup"
+                  className="block text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+                >
+                  Disable SSL Certificate Verification
+                </label>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Enable this if you're using a self-signed certificate or getting SSL errors.
+                  <span className="text-yellow-700 dark:text-yellow-500 font-medium"> ⚠️ Only use on trusted private networks.</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Remote Path Mapping */}
         <div className="mt-4 bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">

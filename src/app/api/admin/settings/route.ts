@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
         url: configMap.get('download_client_url') || '',
         username: configMap.get('download_client_username') || '',
         password: maskValue('password', configMap.get('download_client_password')),
+        disableSSLVerify: configMap.get('download_client_disable_ssl_verify') === 'true',
         seedingTimeMinutes: parseInt(configMap.get('seeding_time_minutes') || '0'),
         remotePathMappingEnabled: configMap.get('download_client_remote_path_mapping_enabled') === 'true',
         remotePath: configMap.get('download_client_remote_path') || '',

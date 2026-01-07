@@ -43,10 +43,16 @@ Free, open-source BitTorrent client with comprehensive Web API.
 ## Config
 
 **Required (database only, no env fallbacks):**
-- `download_client_url` - qBittorrent Web UI URL
+- `download_client_url` - qBittorrent Web UI URL (supports HTTP and HTTPS)
 - `download_client_username` - qBittorrent username
 - `download_client_password` - qBittorrent password
 - `download_dir` - Download save path (passed to qBittorrent for all torrents)
+
+**Optional (SSL/TLS):**
+- `download_client_disable_ssl_verify` - Disable SSL certificate verification for HTTPS (boolean as string "true"/"false", default: "false")
+  - Use when connecting to qBittorrent with self-signed certificates
+  - ⚠️ Security warning: Only use on trusted private networks
+  - Enhanced error messages guide users when SSL issues detected
 
 **Optional (Remote Path Mapping):**
 - `download_client_remote_path_mapping_enabled` - Enable path mapping (boolean as string "true"/"false")
@@ -164,6 +170,12 @@ type TorrentState = 'downloading' | 'uploading' | 'stalledDL' |
    - PathMapper utility for prefix replacement transformation
    - Local path validation during test connection
    - Applied in download completion and import retry processors
+**11. HTTPS SSL certificate errors** - Users with seedboxes using self-signed certificates or Let's Encrypt couldn't connect. Fixed by:
+   - Optional SSL verification disable toggle in setup wizard and admin settings
+   - Custom HTTPS agent with `rejectUnauthorized: false` when enabled
+   - Enhanced error messages identifying SSL/TLS certificate issues with actionable guidance
+   - Secure by default (SSL verification enabled), with clear security warnings when disabled
+   - URL format: `https://qbt.domain.com:443/qbittorrent` fully supported
 
 ## Tech Stack
 

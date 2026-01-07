@@ -43,6 +43,7 @@ export interface IndexerStats {
 interface ProwlarrSearchResult {
   guid: string;
   indexer: string;
+  indexerId?: number;
   title: string;
   size: number;
   seeders: number;
@@ -51,6 +52,10 @@ interface ProwlarrSearchResult {
   downloadUrl: string;
   infoHash?: string;
   categories?: number[];
+  downloadVolumeFactor?: number;
+  uploadVolumeFactor?: number;
+  indexerFlags?: string[] | number[];  // Can be string names or numeric IDs
+  [key: string]: any;  // Allow any additional fields from Prowlarr API
 }
 
 export class ProwlarrService {
@@ -98,6 +103,11 @@ export class ProwlarrService {
       }
 
       const response = await this.client.get('/search', { params });
+
+      // Debug: Log first raw result to see structure
+      if (response.data.length > 0) {
+        console.log('[Prowlarr] Sample raw result from API:', JSON.stringify(response.data[0], null, 2));
+      }
 
       // Transform Prowlarr results to our format
       const results = response.data
@@ -232,6 +242,7 @@ export class ProwlarrService {
 
           const result: TorrentResult = {
             indexer: item.prowlarrindexer?.['#text'] || item.prowlarrindexer || 'Unknown',
+            indexerId: indexerId,
             title: item.title || '',
             size: parseInt(item.size || '0', 10),
             seeders,
@@ -296,8 +307,12 @@ export class ProwlarrService {
       // Extract metadata from title
       const metadata = this.extractMetadata(result.title);
 
+      // Extract flags from result
+      const flags = this.extractFlags(result);
+
       return {
         indexer: result.indexer,
+        indexerId: result.indexerId,
         title: result.title,
         size: result.size,
         seeders: result.seeders,
@@ -309,11 +324,62 @@ export class ProwlarrService {
         format: metadata.format,
         bitrate: metadata.bitrate,
         hasChapters: metadata.hasChapters,
+        flags: flags.length > 0 ? flags : undefined,
       };
     } catch (error) {
       console.error('Failed to transform result:', result, error);
       return null;
     }
+  }
+
+  /**
+   * Extract indexer flags from Prowlarr result
+   */
+  private extractFlags(result: ProwlarrSearchResult): string[] {
+    const flags: string[] = [];
+
+    // Primary method: Check for indexerFlags array (can be strings or numbers)
+    if (result.indexerFlags && Array.isArray(result.indexerFlags)) {
+      result.indexerFlags.forEach(flag => {
+        if (typeof flag === 'string' && flag.trim()) {
+          flags.push(flag.trim());
+        }
+        // Skip numeric flags - we can't map those to user-friendly names without indexer-specific mapping
+      });
+    }
+
+    // Also check for common alternative field names Prowlarr might use
+    const possibleFlagFields = ['flags', 'tags', 'labels'];
+    for (const fieldName of possibleFlagFields) {
+      const fieldValue = result[fieldName];
+      if (fieldValue && Array.isArray(fieldValue)) {
+        fieldValue.forEach((flag: any) => {
+          if (typeof flag === 'string' && flag.trim() && !flags.includes(flag.trim())) {
+            flags.push(flag.trim());
+          }
+        });
+      }
+    }
+
+    // Fallback: Derive flags from volume factors only if no flags were found
+    if (flags.length === 0) {
+      if (result.downloadVolumeFactor !== undefined && result.downloadVolumeFactor === 0) {
+        flags.push('Freeleech');
+      } else if (result.downloadVolumeFactor !== undefined && result.downloadVolumeFactor < 1) {
+        flags.push('Partial Freeleech');
+      }
+
+      if (result.uploadVolumeFactor !== undefined && result.uploadVolumeFactor > 1) {
+        flags.push('Double Upload');
+      }
+    }
+
+    // Log detected flags for debugging
+    if (flags.length > 0) {
+      console.log(`[Prowlarr] ✓ Detected flags for "${result.title.substring(0, 50)}...": [${flags.join(', ')}]`);
+    }
+
+    return flags;
   }
 
   /**

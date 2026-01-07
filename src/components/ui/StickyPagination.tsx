@@ -14,6 +14,7 @@ interface StickyPaginationProps {
   onPageChange: (page: number) => void;
   sectionRef: React.RefObject<HTMLElement | null>;
   label: string; // e.g., "Popular Audiobooks"
+  footerRef?: React.RefObject<HTMLElement | null>; // Optional footer ref to avoid overlap
 }
 
 export function StickyPagination({
@@ -22,8 +23,10 @@ export function StickyPagination({
   onPageChange,
   sectionRef,
   label,
+  footerRef,
 }: StickyPaginationProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const [isFooterVisible, setIsFooterVisible] = useState(false);
   const [jumpPage, setJumpPage] = useState(currentPage.toString());
 
   // Update jump page input when current page changes externally
@@ -50,6 +53,26 @@ export function StickyPagination({
 
     return () => observer.disconnect();
   }, [sectionRef]);
+
+  // Footer observer to hide pagination when footer is visible
+  useEffect(() => {
+    if (!footerRef?.current) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Hide pagination when footer is in viewport
+        setIsFooterVisible(entry.isIntersecting);
+      },
+      {
+        threshold: [0, 0.1],
+        rootMargin: '0px',
+      }
+    );
+
+    observer.observe(footerRef.current);
+
+    return () => observer.disconnect();
+  }, [footerRef]);
 
   if (totalPages <= 1) {
     return null;
@@ -78,10 +101,13 @@ export function StickyPagination({
     }
   };
 
+  // Final visibility: show when section is visible AND footer is not visible
+  const shouldShow = isVisible && !isFooterVisible;
+
   return (
     <div
       className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-40 transition-all duration-300 ${
-        isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'
+        shouldShow ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'
       }`}
     >
       <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5">

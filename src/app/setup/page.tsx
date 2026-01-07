@@ -77,6 +77,7 @@ interface SetupState {
   downloadClientUrl: string;
   downloadClientUsername: string;
   downloadClientPassword: string;
+  disableSSLVerify: boolean;
   remotePathMappingEnabled: boolean;
   remotePath: string;
   localPath: string;
@@ -145,6 +146,7 @@ export default function SetupWizard() {
     downloadClientUrl: '',
     downloadClientUsername: 'admin',
     downloadClientPassword: '',
+    disableSSLVerify: false,
     remotePathMappingEnabled: false,
     remotePath: '',
     localPath: '',
@@ -217,6 +219,7 @@ export default function SetupWizard() {
           url: state.downloadClientUrl,
           username: state.downloadClientUsername,
           password: state.downloadClientPassword,
+          disableSSLVerify: state.disableSSLVerify,
           remotePathMappingEnabled: state.remotePathMappingEnabled,
           remotePath: state.remotePath,
           localPath: state.localPath,
@@ -503,6 +506,7 @@ export default function SetupWizard() {
           downloadClientUrl={state.downloadClientUrl}
           downloadClientUsername={state.downloadClientUsername}
           downloadClientPassword={state.downloadClientPassword}
+          disableSSLVerify={state.disableSSLVerify}
           remotePathMappingEnabled={state.remotePathMappingEnabled}
           remotePath={state.remotePath}
           localPath={state.localPath}

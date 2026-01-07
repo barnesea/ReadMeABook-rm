@@ -19,6 +19,7 @@ export default function HomePage() {
   // Refs for auto-scrolling to section tops
   const popularSectionRef = useRef<HTMLElement>(null);
   const newReleasesSectionRef = useRef<HTMLElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
 
   const {
     audiobooks: popular,
@@ -139,30 +140,10 @@ export default function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-16">
+      <footer ref={footerRef} className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-16">
         <div className="container mx-auto px-4 py-6 max-w-7xl">
           <div className="text-center text-sm text-gray-600 dark:text-gray-400">
             <p>ReadMeABook - Audiobook Library Management System</p>
-            <p className="mt-1">
-              Powered by{' '}
-              <a
-                href="https://www.plex.tv"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                Plex
-              </a>
-              {' '}&{' '}
-              <a
-                href="https://www.audible.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                Audible
-              </a>
-            </p>
           </div>
         </div>
       </footer>
@@ -173,6 +154,7 @@ export default function HomePage() {
         totalPages={popularTotalPages}
         onPageChange={handlePopularPageChange}
         sectionRef={popularSectionRef}
+        footerRef={footerRef}
         label="Popular Audiobooks"
       />
       <StickyPagination
@@ -180,6 +162,7 @@ export default function HomePage() {
         totalPages={newReleasesTotalPages}
         onPageChange={handleNewReleasesPageChange}
         sectionRef={newReleasesSectionRef}
+        footerRef={footerRef}
         label="New Releases"
       />
       </div>

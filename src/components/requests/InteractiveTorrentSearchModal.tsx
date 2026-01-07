@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
-import { TorrentResult } from '@/lib/utils/ranking-algorithm';
+import { TorrentResult, RankedTorrent } from '@/lib/utils/ranking-algorithm';
 import { useInteractiveSearch, useSelectTorrent, useSearchTorrents, useRequestWithTorrent } from '@/lib/hooks/useRequests';
 import { Audiobook } from '@/lib/hooks/useAudiobooks';
 
@@ -41,7 +41,7 @@ export function InteractiveTorrentSearchModal({
   const { searchTorrents: searchByAudiobook, isLoading: isSearchingByAudiobook, error: searchByAudiobookError } = useSearchTorrents();
   const { requestWithTorrent, isLoading: isRequestingWithTorrent, error: requestWithTorrentError } = useRequestWithTorrent();
 
-  const [results, setResults] = useState<(TorrentResult & { rank: number; qualityScore?: number })[]>([]);
+  const [results, setResults] = useState<(RankedTorrent & { qualityScore?: number })[]>([]);
   const [confirmTorrent, setConfirmTorrent] = useState<TorrentResult | null>(null);
   const [searchTitle, setSearchTitle] = useState(audiobook.title);
 
@@ -200,25 +200,28 @@ export function InteractiveTorrentSearchModal({
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                   <thead className="bg-gray-50 dark:bg-gray-900">
                     <tr>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-12">
                         #
                       </th>
                       <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                         Title
                       </th>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden sm:table-cell">
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden sm:table-cell w-24">
                         Size
                       </th>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-16" title="Base quality score (0-100): Title/Author match (50) + Format (25) + Seeders (15) + Size (10)">
                         Score
                       </th>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden md:table-cell">
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-16" title="Bonus points from indexer priority and other modifiers">
+                        Bonus
+                      </th>
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden md:table-cell w-20">
                         Seeds
                       </th>
-                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden lg:table-cell">
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase hidden lg:table-cell w-32">
                         Indexer
                       </th>
-                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                      <th className="px-2 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-24">
                         Action
                       </th>
                     </tr>
@@ -230,7 +233,7 @@ export function InteractiveTorrentSearchModal({
                           {result.rank}
                         </td>
                         <td className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100">
-                          <div className="max-w-xs lg:max-w-md truncate">
+                          <div className="truncate">
                             <a
                               href={result.guid}
                               target="_blank"
@@ -259,9 +262,12 @@ export function InteractiveTorrentSearchModal({
                           {formatSize(result.size)}
                         </td>
                         <td className="px-2 py-3 whitespace-nowrap text-sm">
-                          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getQualityBadgeColor(result.qualityScore || 0)}`}>
-                            {result.qualityScore || 0}
+                          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getQualityBadgeColor(Math.round(result.score))}`}>
+                            {Math.round(result.score)}
                           </span>
+                        </td>
+                        <td className="px-2 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                          {result.bonusPoints > 0 ? `+${Math.round(result.bonusPoints)}` : '—'}
                         </td>
                         <td className="px-2 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell">
                           <span className="flex items-center gap-1">

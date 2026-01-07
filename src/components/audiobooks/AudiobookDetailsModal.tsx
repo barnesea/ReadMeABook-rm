@@ -242,10 +242,10 @@ export function AudiobookDetailsModal({
 
                 {/* Metadata Grid */}
                 <div className="grid grid-cols-2 gap-4 pt-2">
-                  {/* Rating */}
-                  {audiobook.rating && (
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Rating</p>
+                  {/* Rating - Always show header, display 'Not Found' if no rating */}
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Rating</p>
+                    {audiobook.rating && audiobook.rating > 0 ? (
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1">
                           {[...Array(5)].map((_, i) => (
@@ -266,8 +266,10 @@ export function AudiobookDetailsModal({
                           {Number(audiobook.rating).toFixed(1)}
                         </span>
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-gray-500 dark:text-gray-400 italic">Not Found</p>
+                    )}
+                  </div>
 
                   {/* Duration */}
                   {audiobook.durationMinutes && (

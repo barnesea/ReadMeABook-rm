@@ -174,12 +174,16 @@ export class AudibleService {
 
           const coverArtUrl = $el.find('img').attr('src') || '';
 
+          const ratingText = $el.find('.ratingsLabel').text().trim();
+          const rating = ratingText ? parseFloat(ratingText.split(' ')[0]) : undefined;
+
           audiobooks.push({
             asin,
             title,
             author: authorText.replace('By:', '').replace('Written by:', '').trim(),
             narrator: narratorText.replace('Narrated by:', '').trim(),
             coverArtUrl: coverArtUrl.replace(/\._.*_\./, '._SL500_.'),
+            rating,
           });
 
           foundOnPage++;
@@ -249,6 +253,9 @@ export class AudibleService {
         const runtimeText = $el.find('.runtimeLabel').text().trim();
         const durationMinutes = this.parseRuntime(runtimeText);
 
+        const ratingText = $el.find('.ratingsLabel').text().trim();
+        const rating = ratingText ? parseFloat(ratingText.split(' ')[0]) : undefined;
+
         audiobooks.push({
           asin,
           title,
@@ -256,6 +263,7 @@ export class AudibleService {
           narrator: narratorText.replace('Narrated by:', '').trim(),
           coverArtUrl: coverArtUrl.replace(/\._.*_\./, '._SL500_.'),
           durationMinutes,
+          rating,
         });
       });
 

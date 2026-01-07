@@ -82,6 +82,15 @@ export async function POST(
         );
       }
 
+      // Build indexer priorities map (indexerId -> priority 1-25, default 10)
+      const indexerPriorities = new Map<number, number>(
+        indexersConfig.map((indexer: any) => [indexer.id, indexer.priority ?? 10])
+      );
+
+      // Get flag configurations
+      const flagConfigStr = await configService.get('indexer_flag_config');
+      const flagConfigs = flagConfigStr ? JSON.parse(flagConfigStr) : [];
+
       // Search Prowlarr for torrents - ONLY enabled indexers
       const prowlarr = await getProwlarrService();
       // Use custom title if provided, otherwise use audiobook's title
@@ -107,17 +116,28 @@ export async function POST(
         });
       }
 
-      // Rank torrents using the ranking algorithm
+      // Rank torrents using the ranking algorithm with indexer priorities and flag configs
       // Always use the audiobook's title/author for ranking (not custom search query)
       const rankedResults = rankTorrents(results, {
         title: requestRecord.audiobook.title,
         author: requestRecord.audiobook.author,
-      });
+      }, indexerPriorities, flagConfigs);
 
-      // Filter out results below minimum score threshold (50/100)
-      const filteredResults = rankedResults.filter(result => result.score >= 50);
+      // Dual threshold filtering:
+      // 1. Base score must be >= 50 (quality minimum)
+      // 2. Final score must be >= 50 (not disqualified by negative bonuses)
+      const filteredResults = rankedResults.filter(result =>
+        result.score >= 50 && result.finalScore >= 50
+      );
 
-      console.log(`[InteractiveSearch] Ranked ${rankedResults.length} results, ${filteredResults.length} above threshold (50/100)`);
+      const disqualifiedByNegativeBonus = rankedResults.filter(result =>
+        result.score >= 50 && result.finalScore < 50
+      ).length;
+
+      console.log(`[InteractiveSearch] Ranked ${rankedResults.length} results, ${filteredResults.length} above threshold (50/100 base + final)`);
+      if (disqualifiedByNegativeBonus > 0) {
+        console.log(`[InteractiveSearch] ${disqualifiedByNegativeBonus} torrents disqualified by negative flag bonuses`);
+      }
 
       // Log top 3 results with detailed score breakdown for debugging
       const top3 = filteredResults.slice(0, 3);
@@ -130,12 +150,22 @@ export async function POST(
         console.log(`[InteractiveSearch] --------------------------------------------------------`);
         top3.forEach((result, index) => {
           console.log(`[InteractiveSearch] ${index + 1}. "${result.title}"`);
-          console.log(`[InteractiveSearch]    Indexer: ${result.indexer}`);
-          console.log(`[InteractiveSearch]    Total Score: ${result.score.toFixed(1)}/100`);
+          console.log(`[InteractiveSearch]    Indexer: ${result.indexer}${result.indexerId ? ` (ID: ${result.indexerId})` : ''}`);
+          console.log(`[InteractiveSearch]    `);
+          console.log(`[InteractiveSearch]    Base Score: ${result.score.toFixed(1)}/100`);
           console.log(`[InteractiveSearch]    - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/50`);
           console.log(`[InteractiveSearch]    - Format Quality: ${result.breakdown.formatScore.toFixed(1)}/25 (${result.format || 'unknown'})`);
           console.log(`[InteractiveSearch]    - Seeder Count: ${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders} seeders)`);
           console.log(`[InteractiveSearch]    - Size Score: ${result.breakdown.sizeScore.toFixed(1)}/10 (${(result.size / (1024 ** 3)).toFixed(2)} GB)`);
+          console.log(`[InteractiveSearch]    `);
+          console.log(`[InteractiveSearch]    Bonus Points: +${result.bonusPoints.toFixed(1)}`);
+          if (result.bonusModifiers.length > 0) {
+            result.bonusModifiers.forEach(mod => {
+              console.log(`[InteractiveSearch]    - ${mod.reason}: +${mod.points.toFixed(1)}`);
+            });
+          }
+          console.log(`[InteractiveSearch]    `);
+          console.log(`[InteractiveSearch]    Final Score: ${result.finalScore.toFixed(1)}`);
           if (result.breakdown.notes.length > 0) {
             console.log(`[InteractiveSearch]    Notes: ${result.breakdown.notes.join(', ')}`);
           }

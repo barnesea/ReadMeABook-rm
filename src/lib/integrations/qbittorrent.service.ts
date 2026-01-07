@@ -4,6 +4,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import https from 'https';
 import * as parseTorrentModule from 'parse-torrent';
 import FormData from 'form-data';
 
@@ -80,23 +81,36 @@ export class QBittorrentService {
   private cookie?: string;
   private defaultSavePath: string;
   private defaultCategory: string;
+  private disableSSLVerify: boolean;
+  private httpsAgent?: https.Agent;
 
   constructor(
     baseUrl: string,
     username: string,
     password: string,
     defaultSavePath: string = '/downloads',
-    defaultCategory: string = 'readmeabook'
+    defaultCategory: string = 'readmeabook',
+    disableSSLVerify: boolean = false
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.username = username;
     this.password = password;
     this.defaultSavePath = defaultSavePath;
     this.defaultCategory = defaultCategory;
+    this.disableSSLVerify = disableSSLVerify;
+
+    // Create HTTPS agent if SSL verification is disabled
+    if (disableSSLVerify && this.baseUrl.startsWith('https')) {
+      this.httpsAgent = new https.Agent({
+        rejectUnauthorized: false,
+      });
+      console.log('[qBittorrent] SSL certificate verification disabled');
+    }
 
     this.client = axios.create({
       baseURL: `${this.baseUrl}/api/v2`,
       timeout: 30000,
+      httpsAgent: this.httpsAgent,
     });
   }
 
@@ -113,6 +127,7 @@ export class QBittorrentService {
         }),
         {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          httpsAgent: this.httpsAgent,
         }
       );
 
@@ -660,9 +675,19 @@ export class QBittorrentService {
   static async testConnectionWithCredentials(
     url: string,
     username: string,
-    password: string
+    password: string,
+    disableSSLVerify: boolean = false
   ): Promise<string> {
     const baseUrl = url.replace(/\/$/, '');
+
+    // Create HTTPS agent if SSL verification is disabled
+    let httpsAgent: https.Agent | undefined;
+    if (disableSSLVerify && baseUrl.startsWith('https')) {
+      httpsAgent = new https.Agent({
+        rejectUnauthorized: false,
+      });
+      console.log('[qBittorrent] SSL certificate verification disabled for test connection');
+    }
 
     try {
       const response = await axios.post(
@@ -670,25 +695,103 @@ export class QBittorrentService {
         new URLSearchParams({ username, password }),
         {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          httpsAgent,
         }
       );
 
       // Get version to confirm connection
       const cookies = response.headers['set-cookie'];
       if (!cookies || cookies.length === 0) {
-        throw new Error('Failed to authenticate');
+        throw new Error('Failed to authenticate - no session cookie received');
       }
 
       const cookie = cookies[0].split(';')[0];
 
       const versionResponse = await axios.get(`${baseUrl}/api/v2/app/version`, {
         headers: { Cookie: cookie },
+        httpsAgent,
       });
 
       return versionResponse.data || 'Connected';
     } catch (error) {
-      console.error('qBittorrent connection test failed:', error);
-      throw new Error('Failed to connect to qBittorrent');
+      console.error('[qBittorrent] Connection test failed:', error);
+
+      // Enhanced error messages for common issues
+      if (axios.isAxiosError(error)) {
+        const code = error.code;
+        const status = error.response?.status;
+        const url = error.config?.url;
+
+        // SSL/TLS certificate errors
+        if (code === 'DEPTH_ZERO_SELF_SIGNED_CERT') {
+          throw new Error(
+            `SSL certificate verification failed: self-signed certificate detected. ` +
+            `If you trust this server, enable "Disable SSL Verification" below.`
+          );
+        }
+        if (code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE') {
+          throw new Error(
+            `SSL certificate verification failed: unable to verify certificate chain. ` +
+            `If you trust this server, enable "Disable SSL Verification" below.`
+          );
+        }
+        if (code === 'CERT_HAS_EXPIRED') {
+          throw new Error(
+            `SSL certificate verification failed: certificate has expired. ` +
+            `Update the certificate or enable "Disable SSL Verification" below.`
+          );
+        }
+        if (code?.includes('CERT') || code?.includes('SSL') || code?.includes('TLS')) {
+          throw new Error(
+            `SSL certificate verification failed (${code}). ` +
+            `If you trust this server, enable "Disable SSL Verification" below.`
+          );
+        }
+
+        // Connection errors
+        if (code === 'ECONNREFUSED') {
+          throw new Error(
+            `Connection refused. Check if qBittorrent is running and accessible at: ${baseUrl}`
+          );
+        }
+        if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
+          throw new Error(
+            `Connection timeout. Verify the URL is correct and the server is reachable: ${baseUrl}`
+          );
+        }
+        if (code === 'ENOTFOUND') {
+          throw new Error(
+            `Host not found. Verify the domain/IP address is correct: ${baseUrl}`
+          );
+        }
+
+        // HTTP status errors
+        if (status === 401 || status === 403) {
+          throw new Error(
+            `Authentication failed (HTTP ${status}). Check your username and password.`
+          );
+        }
+        if (status === 404) {
+          throw new Error(
+            `qBittorrent Web UI not found (HTTP 404). Verify the URL path is correct: ${baseUrl}`
+          );
+        }
+        if (status && status >= 500) {
+          throw new Error(
+            `qBittorrent server error (HTTP ${status}). Check server logs.`
+          );
+        }
+
+        // Generic axios error with more context
+        throw new Error(
+          `Failed to connect to qBittorrent at ${baseUrl}: ${error.message}`
+        );
+      }
+
+      // Non-axios error
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to connect to qBittorrent'
+      );
     }
   }
 
@@ -772,6 +875,7 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
         'download_client_username',
         'download_client_password',
         'download_dir',
+        'download_client_disable_ssl_verify',
       ]);
 
       console.log('[qBittorrent] Config loaded:', {
@@ -779,6 +883,7 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
         hasUsername: !!config.download_client_username,
         hasPassword: !!config.download_client_password,
         hasPath: !!config.download_dir,
+        disableSSLVerify: config.download_client_disable_ssl_verify === 'true',
       });
 
       // Validate all required fields are present (no env var fallback)
@@ -808,6 +913,7 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
       const username = config.download_client_username as string;
       const password = config.download_client_password as string;
       const savePath = config.download_dir as string;
+      const disableSSLVerify = config.download_client_disable_ssl_verify === 'true';
 
       console.log('[qBittorrent] Creating service instance...');
       qbittorrentService = new QBittorrentService(
@@ -815,7 +921,8 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
         username,
         password,
         savePath,
-        'readmeabook'
+        'readmeabook',
+        disableSSLVerify
       );
 
       // Test connection

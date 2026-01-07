@@ -808,30 +808,6 @@ function LoginContent() {
               </>
             )}
           </div>
-
-          {/* Footer info */}
-          <div className="mt-8 text-center text-sm text-gray-500">
-            <p>
-              Powered by{' '}
-              <a
-                href="https://www.plex.tv"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-orange-400 hover:text-orange-300 transition-colors"
-              >
-                Plex
-              </a>
-              {' '}&{' '}
-              <a
-                href="https://www.audible.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-orange-400 hover:text-orange-300 transition-colors"
-              >
-                Audible
-              </a>
-            </p>
-          </div>
         </div>
       </main>
 

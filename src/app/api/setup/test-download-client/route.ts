@@ -8,7 +8,7 @@ import { QBittorrentService } from '@/lib/integrations/qbittorrent.service';
 
 export async function POST(request: NextRequest) {
   try {
-    const { type, url, username, password } = await request.json();
+    const { type, url, username, password, disableSSLVerify } = await request.json();
 
     if (!type || !url || !username || !password) {
       return NextResponse.json(
@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
     const version = await QBittorrentService.testConnectionWithCredentials(
       url,
       username,
-      password
+      password,
+      disableSSLVerify || false
     );
 
     return NextResponse.json({

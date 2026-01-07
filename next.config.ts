@@ -26,8 +26,10 @@ const nextConfig: NextConfig = {
     return config;
   },
 
-  // Image optimization
+  // Image optimization - DISABLED because we handle our own thumbnail caching
+  // in /app/cache/thumbnails/ via the Audible refresh job
   images: {
+    unoptimized: true, // Disable Next.js image optimization
     remotePatterns: [
       {
         protocol: 'https',

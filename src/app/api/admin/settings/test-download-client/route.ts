@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
           url,
           username,
           password,
+          disableSSLVerify,
           remotePathMappingEnabled,
           remotePath,
           localPath,
@@ -57,7 +58,8 @@ export async function POST(request: NextRequest) {
         const version = await QBittorrentService.testConnectionWithCredentials(
           url,
           username,
-          actualPassword
+          actualPassword,
+          disableSSLVerify || false
         );
 
         // If path mapping enabled, validate local path exists

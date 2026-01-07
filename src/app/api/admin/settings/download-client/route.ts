@@ -17,6 +17,7 @@ export async function PUT(request: NextRequest) {
           url,
           username,
           password,
+          disableSSLVerify,
           remotePathMappingEnabled,
           remotePath,
           localPath,
@@ -91,6 +92,16 @@ export async function PUT(request: NextRequest) {
             create: { key: 'download_client_password', value: password },
           });
         }
+
+        // Save SSL verification setting
+        await prisma.configuration.upsert({
+          where: { key: 'download_client_disable_ssl_verify' },
+          update: { value: disableSSLVerify ? 'true' : 'false' },
+          create: {
+            key: 'download_client_disable_ssl_verify',
+            value: disableSSLVerify ? 'true' : 'false',
+          },
+        });
 
         // Save remote path mapping configuration
         await prisma.configuration.upsert({

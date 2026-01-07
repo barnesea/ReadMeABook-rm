@@ -356,6 +356,15 @@ export async function POST(request: NextRequest) {
       create: { key: 'download_client_password', value: downloadClient.password },
     });
 
+    await prisma.configuration.upsert({
+      where: { key: 'download_client_disable_ssl_verify' },
+      update: { value: downloadClient.disableSSLVerify ? 'true' : 'false' },
+      create: {
+        key: 'download_client_disable_ssl_verify',
+        value: downloadClient.disableSSLVerify ? 'true' : 'false',
+      },
+    });
+
     // Remote path mapping configuration
     await prisma.configuration.upsert({
       where: { key: 'download_client_remote_path_mapping_enabled' },

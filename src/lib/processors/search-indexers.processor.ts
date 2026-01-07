@@ -47,6 +47,15 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
       throw new Error('No indexers enabled. Please enable at least one indexer in settings.');
     }
 
+    // Build indexer priorities map (indexerId -> priority 1-25, default 10)
+    const indexerPriorities = new Map<number, number>(
+      indexersConfig.map((indexer: any) => [indexer.id, indexer.priority ?? 10])
+    );
+
+    // Get flag configurations
+    const flagConfigStr = await configService.get('indexer_flag_config');
+    const flagConfigs = flagConfigStr ? JSON.parse(flagConfigStr) : [];
+
     await logger?.info(`Searching ${enabledIndexerIds.length} enabled indexers`);
 
     // Get Prowlarr service
@@ -91,17 +100,28 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
     // Get ranking algorithm
     const ranker = getRankingAlgorithm();
 
-    // Rank results
+    // Rank results with indexer priorities and flag configs
     const rankedResults = ranker.rankTorrents(searchResults, {
       title: audiobook.title,
       author: audiobook.author,
       durationMinutes: undefined, // We don't have duration from Audible
-    });
+    }, indexerPriorities, flagConfigs);
 
-    // Filter out results below minimum score threshold (50/100)
-    const filteredResults = rankedResults.filter(result => result.score >= 50);
+    // Dual threshold filtering:
+    // 1. Base score must be >= 50 (quality minimum)
+    // 2. Final score must be >= 50 (not disqualified by negative bonuses)
+    const filteredResults = rankedResults.filter(result =>
+      result.score >= 50 && result.finalScore >= 50
+    );
 
-    await logger?.info(`Ranked ${rankedResults.length} results, ${filteredResults.length} above threshold (50/100)`);
+    const disqualifiedByNegativeBonus = rankedResults.filter(result =>
+      result.score >= 50 && result.finalScore < 50
+    ).length;
+
+    await logger?.info(`Ranked ${rankedResults.length} results, ${filteredResults.length} above threshold (50/100 base + final)`);
+    if (disqualifiedByNegativeBonus > 0) {
+      await logger?.info(`${disqualifiedByNegativeBonus} torrents disqualified by negative flag bonuses`);
+    }
 
     if (filteredResults.length === 0) {
       // No quality results found - queue for re-search instead of failing
@@ -137,8 +157,22 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
     for (let i = 0; i < top3.length; i++) {
       const result = top3[i];
       await logger?.info(`${i + 1}. "${result.title}"`);
-      await logger?.info(`   Indexer: ${result.indexer}`);
-      await logger?.info(`   Total: ${result.score.toFixed(1)}/100 | Match: ${result.breakdown.matchScore.toFixed(1)}/50 | Format: ${result.breakdown.formatScore.toFixed(1)}/25 | Seeders: ${result.breakdown.seederScore.toFixed(1)}/15 | Size: ${result.breakdown.sizeScore.toFixed(1)}/10`);
+      await logger?.info(`   Indexer: ${result.indexer}${result.indexerId ? ` (ID: ${result.indexerId})` : ''}`);
+      await logger?.info(``);
+      await logger?.info(`   Base Score: ${result.score.toFixed(1)}/100`);
+      await logger?.info(`   - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/50`);
+      await logger?.info(`   - Format Quality: ${result.breakdown.formatScore.toFixed(1)}/25 (${result.format || 'unknown'})`);
+      await logger?.info(`   - Seeder Count: ${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders} seeders)`);
+      await logger?.info(`   - Size Score: ${result.breakdown.sizeScore.toFixed(1)}/10`);
+      await logger?.info(``);
+      await logger?.info(`   Bonus Points: +${result.bonusPoints.toFixed(1)}`);
+      if (result.bonusModifiers.length > 0) {
+        for (const mod of result.bonusModifiers) {
+          await logger?.info(`   - ${mod.reason}: +${mod.points.toFixed(1)}`);
+        }
+      }
+      await logger?.info(``);
+      await logger?.info(`   Final Score: ${result.finalScore.toFixed(1)}`);
       if (result.breakdown.notes.length > 0) {
         await logger?.info(`   Notes: ${result.breakdown.notes.join(', ')}`);
       }
@@ -147,7 +181,7 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
       }
     }
     await logger?.info(`========================================================`);
-    await logger?.info(`Selected best result: ${bestResult.title} (score: ${bestResult.score.toFixed(1)}/100)`);
+    await logger?.info(`Selected best result: ${bestResult.title} (final score: ${bestResult.finalScore.toFixed(1)})`);
 
     // Trigger download job with best result
     const jobQueue = getJobQueueService();

@@ -34,6 +34,10 @@ export async function GET(request: NextRequest) {
         const savedConfigStr = await configService.get('prowlarr_indexers');
         const savedIndexers: SavedIndexerConfig[] = savedConfigStr ? JSON.parse(savedConfigStr) : [];
 
+        // Get saved flag configuration
+        const flagConfigStr = await configService.get('indexer_flag_config');
+        const flagConfigs = flagConfigStr ? JSON.parse(flagConfigStr) : [];
+
         // Merge with defaults (wizard format: array of {id, name, priority, seedingTimeMinutes})
         const savedIndexersMap = new Map<number, SavedIndexerConfig>(
           savedIndexers.map((idx) => [idx.id, idx])
@@ -58,6 +62,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           success: true,
           indexers: indexersWithConfig,
+          flagConfigs,
         });
       } catch (error) {
         console.error('[Prowlarr] Failed to fetch indexers:', error);
@@ -76,13 +81,13 @@ export async function GET(request: NextRequest) {
 
 /**
  * PUT /api/admin/settings/prowlarr/indexers
- * Save indexer configuration
+ * Save indexer configuration and flag configs
  */
 export async function PUT(request: NextRequest) {
   return requireAuth(request, async (req: AuthenticatedRequest) => {
     return requireAdmin(req, async () => {
       try {
-        const { indexers } = await req.json();
+        const { indexers, flagConfigs } = await req.json();
 
         // Filter to only enabled indexers and convert to wizard format
         const enabledIndexers = indexers
@@ -97,14 +102,26 @@ export async function PUT(request: NextRequest) {
 
         // Save to configuration (matches wizard format)
         const configService = getConfigService();
-        await configService.setMany([
+        const configUpdates = [
           {
             key: 'prowlarr_indexers',
             value: JSON.stringify(enabledIndexers),
             category: 'indexer',
             description: 'Prowlarr indexer settings (enabled, priority, seeding time)',
           },
-        ]);
+        ];
+
+        // Save flag configs if provided
+        if (flagConfigs !== undefined) {
+          configUpdates.push({
+            key: 'indexer_flag_config',
+            value: JSON.stringify(flagConfigs),
+            category: 'indexer',
+            description: 'Indexer flag bonus/penalty configuration',
+          });
+        }
+
+        await configService.setMany(configUpdates);
 
         return NextResponse.json({
           success: true,

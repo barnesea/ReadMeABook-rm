@@ -7,6 +7,7 @@ import { compareTwoStrings } from 'string-similarity';
 
 export interface TorrentResult {
   indexer: string;
+  indexerId?: number;
   title: string;
   size: number;
   seeders: number;
@@ -18,6 +19,7 @@ export interface TorrentResult {
   format?: 'M4B' | 'M4A' | 'MP3' | 'OTHER';
   bitrate?: string;
   hasChapters?: boolean;
+  flags?: string[];     // Indexer flags like "Freeleech", "Internal", etc.
 }
 
 export interface AudiobookRequest {
@@ -25,6 +27,18 @@ export interface AudiobookRequest {
   author: string;
   narrator?: string;
   durationMinutes?: number;
+}
+
+export interface IndexerFlagConfig {
+  name: string;         // Flag name (e.g., "Freeleech")
+  modifier: number;     // -100 to 100 (percentage)
+}
+
+export interface BonusModifier {
+  type: 'indexer_priority' | 'indexer_flag' | 'custom';
+  value: number;        // Multiplier (e.g., 0.4 for 40%)
+  points: number;       // Calculated bonus points from this modifier
+  reason: string;       // Human-readable explanation
 }
 
 export interface ScoreBreakdown {
@@ -37,51 +51,116 @@ export interface ScoreBreakdown {
 }
 
 export interface RankedTorrent extends TorrentResult {
-  score: number;
+  score: number;              // Base score (0-100)
+  bonusModifiers: BonusModifier[];
+  bonusPoints: number;        // Sum of all bonus points
+  finalScore: number;         // score + bonusPoints
   rank: number;
   breakdown: ScoreBreakdown;
 }
 
 export class RankingAlgorithm {
   /**
-   * Rank all torrents and return sorted by score (best first)
+   * Rank all torrents and return sorted by finalScore (best first)
+   * @param torrents - Array of torrent results to rank
+   * @param audiobook - Audiobook request details for matching
+   * @param indexerPriorities - Optional map of indexerId to priority (1-25), defaults to 10
+   * @param flagConfigs - Optional array of flag configurations for bonus/penalty modifiers
    */
   rankTorrents(
     torrents: TorrentResult[],
-    audiobook: AudiobookRequest
+    audiobook: AudiobookRequest,
+    indexerPriorities?: Map<number, number>,
+    flagConfigs?: IndexerFlagConfig[]
   ): RankedTorrent[] {
     const ranked = torrents.map((torrent) => {
+      // Calculate base scores (0-100)
       const formatScore = this.scoreFormat(torrent);
       const seederScore = this.scoreSeeders(torrent.seeders);
       const sizeScore = this.scoreSize(torrent.size, audiobook.durationMinutes);
       const matchScore = this.scoreMatch(torrent, audiobook);
 
-      const totalScore = formatScore + seederScore + sizeScore + matchScore;
+      const baseScore = formatScore + seederScore + sizeScore + matchScore;
+
+      // Calculate bonus modifiers
+      const bonusModifiers: BonusModifier[] = [];
+
+      // Indexer priority bonus (default: 10/25 = 40%)
+      if (torrent.indexerId !== undefined) {
+        const priority = indexerPriorities?.get(torrent.indexerId) ?? 10;
+        const modifier = priority / 25;  // Convert 1-25 to 0.04-1.0 (4%-100%)
+        const points = baseScore * modifier;
+
+        bonusModifiers.push({
+          type: 'indexer_priority',
+          value: modifier,
+          points: points,
+          reason: `Indexer priority ${priority}/25 (${Math.round(modifier * 100)}%)`,
+        });
+      }
+
+      // Flag bonuses/penalties
+      if (torrent.flags && torrent.flags.length > 0 && flagConfigs && flagConfigs.length > 0) {
+        torrent.flags.forEach(torrentFlag => {
+          // Case-insensitive, whitespace-trimmed matching
+          const matchingConfig = flagConfigs.find(cfg =>
+            cfg.name.trim().toLowerCase() === torrentFlag.trim().toLowerCase()
+          );
+
+          if (matchingConfig) {
+            const modifier = matchingConfig.modifier / 100; // Convert -100 to 100 → -1.0 to 1.0
+            const points = baseScore * modifier;
+
+            bonusModifiers.push({
+              type: 'indexer_flag',
+              value: modifier,
+              points: points,
+              reason: `Flag "${torrentFlag}" (${matchingConfig.modifier > 0 ? '+' : ''}${matchingConfig.modifier}%)`,
+            });
+          }
+        });
+      }
+
+      // Sum all bonus points
+      const bonusPoints = bonusModifiers.reduce((sum, mod) => sum + mod.points, 0);
+
+      // Calculate final score
+      const finalScore = baseScore + bonusPoints;
 
       return {
         ...torrent,
-        score: totalScore,
+        score: baseScore,
+        bonusModifiers,
+        bonusPoints,
+        finalScore,
         rank: 0, // Will be assigned after sorting
         breakdown: {
           formatScore,
           seederScore,
           sizeScore,
           matchScore,
-          totalScore,
+          totalScore: baseScore,
           notes: this.generateNotes(torrent, {
             formatScore,
             seederScore,
             sizeScore,
             matchScore,
-            totalScore,
+            totalScore: baseScore,
             notes: [],
           }),
         },
       };
     });
 
-    // Sort by score descending (best first)
-    ranked.sort((a, b) => b.score - a.score);
+    // Sort by finalScore descending (best first), then by publishDate descending (newest first) for tiebreakers
+    ranked.sort((a, b) => {
+      // Primary: sort by final score
+      if (b.finalScore !== a.finalScore) {
+        return b.finalScore - a.finalScore;
+      }
+      // Tiebreaker: sort by publishDate (newest first)
+      return b.publishDate.getTime() - a.publishDate.getTime();
+    });
 
     // Assign ranks
     ranked.forEach((r, index) => {
@@ -210,18 +289,40 @@ export class RankingAlgorithm {
         .filter(word => word.length > 0 && !stopList.includes(word));
     };
 
-    const requestWords = extractWords(requestTitle, stopWords);
+    // Separate required words (outside parentheses/brackets) from optional words (inside)
+    // This handles common patterns like "Title (Subtitle)" where subtitle may be omitted
+    const separateRequiredOptional = (title: string): { required: string; optional: string } => {
+      // Extract content in parentheses/brackets as optional
+      const optionalPattern = /[(\[{]([^)\]}]+)[)\]}]/g;
+      const optionalMatches: string[] = [];
+      let match;
+
+      while ((match = optionalPattern.exec(title)) !== null) {
+        optionalMatches.push(match[1]);
+      }
+
+      // Remove parenthetical/bracketed content to get required portion
+      const required = title.replace(/[(\[{][^)\]}]+[)\]}]/g, ' ').trim();
+      const optional = optionalMatches.join(' ');
+
+      return { required, optional };
+    };
+
+    const { required: requiredTitle, optional: optionalTitle } = separateRequiredOptional(requestTitle);
+
+    // Extract words from required portion only for coverage check
+    const requiredWords = extractWords(requiredTitle, stopWords);
     const torrentWords = extractWords(torrentTitle, stopWords);
 
-    // Calculate word coverage: how many REQUEST words appear in TORRENT
-    if (requestWords.length === 0) {
-      // Edge case: title is only stop words, skip filter
+    // Calculate word coverage: how many REQUIRED words appear in TORRENT
+    if (requiredWords.length === 0) {
+      // Edge case: title is only stop words or only optional content, skip filter
       // Fall through to normal scoring
     } else {
-      const matchedWords = requestWords.filter(word => torrentWords.includes(word));
-      const coverage = matchedWords.length / requestWords.length;
+      const matchedWords = requiredWords.filter(word => torrentWords.includes(word));
+      const coverage = matchedWords.length / requiredWords.length;
 
-      // HARD REQUIREMENT: Must have 80%+ word coverage
+      // HARD REQUIREMENT: Must have 80%+ coverage of REQUIRED words
       if (coverage < 0.80) {
         // Automatic rejection - doesn't contain enough of the requested words
         return 0;
@@ -233,19 +334,27 @@ export class RankingAlgorithm {
     if (torrentTitle.includes(requestTitle)) {
       // Found the title, but is it the complete title or part of a longer one?
       const titleIndex = torrentTitle.indexOf(requestTitle);
+      const beforeTitle = torrentTitle.substring(0, titleIndex);
       const afterTitle = torrentTitle.substring(titleIndex + requestTitle.length);
 
-      // Title is complete if followed by clear metadata markers
-      // (not followed by more title words like "'s Secret" or " Is Watching")
+      // Extract significant words BEFORE the matched title
+      const beforeWords = extractWords(beforeTitle, stopWords);
+
+      // Title is complete if:
+      // 1. No significant words before it (not "This Inevitable Ruin" + "Dungeon Crawler Carl")
+      // 2. Followed by clear metadata markers (not "'s Secret" or " Is Watching")
       const metadataMarkers = [' by ', ' - ', ' [', ' (', ' {', ' :', ','];
-      const isCompleteTitle = afterTitle === '' ||
-                              metadataMarkers.some(marker => afterTitle.startsWith(marker));
+      const hasNoWordsPrefix = beforeWords.length === 0;
+      const hasMetadataSuffix = afterTitle === '' ||
+                                metadataMarkers.some(marker => afterTitle.startsWith(marker));
+
+      const isCompleteTitle = hasNoWordsPrefix && hasMetadataSuffix;
 
       if (isCompleteTitle) {
         // Complete title match → full points
         titleScore = 35;
       } else {
-        // Title continues with more words (e.g., "The Housemaid" + "'s Secret")
+        // Title has prefix words OR continues with more words
         // This is likely a different book in a series → use fuzzy similarity
         titleScore = compareTwoStrings(requestTitle, torrentTitle) * 35;
       }
@@ -373,10 +482,12 @@ export function getRankingAlgorithm(): RankingAlgorithm {
  */
 export function rankTorrents(
   torrents: TorrentResult[],
-  audiobook: AudiobookRequest
+  audiobook: AudiobookRequest,
+  indexerPriorities?: Map<number, number>,
+  flagConfigs?: IndexerFlagConfig[]
 ): (RankedTorrent & { qualityScore: number })[] {
   const algorithm = getRankingAlgorithm();
-  const ranked = algorithm.rankTorrents(torrents, audiobook);
+  const ranked = algorithm.rankTorrents(torrents, audiobook, indexerPriorities, flagConfigs);
 
   // Add qualityScore field for UI compatibility (rounded score)
   return ranked.map((r) => ({

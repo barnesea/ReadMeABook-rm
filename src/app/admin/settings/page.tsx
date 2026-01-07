@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import Link from 'next/link';
 import { fetchWithAuth } from '@/lib/utils/api';
+import { IndexerFlagConfig } from '@/lib/utils/ranking-algorithm';
+import { FlagConfigRow } from '@/components/admin/FlagConfigRow';
 
 interface PlexLibrary {
   id: string;
@@ -70,6 +72,7 @@ interface Settings {
     url: string;
     username: string;
     password: string;
+    disableSSLVerify: boolean;
     remotePathMappingEnabled: boolean;
     remotePath: string;
     localPath: string;
@@ -102,6 +105,7 @@ export default function AdminSettings() {
   const [plexLibraries, setPlexLibraries] = useState<PlexLibrary[]>([]);
   const [absLibraries, setAbsLibraries] = useState<ABSLibrary[]>([]);
   const [indexers, setIndexers] = useState<IndexerConfig[]>([]);
+  const [flagConfigs, setFlagConfigs] = useState<IndexerFlagConfig[]>([]);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [isLocalAdmin, setIsLocalAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -294,6 +298,7 @@ export default function AdminSettings() {
       if (response.ok) {
         const data = await response.json();
         setIndexers(data.indexers || []);
+        setFlagConfigs(data.flagConfigs || []);
       } else {
         console.error('Failed to fetch indexers:', response.status);
         // Don't show error on initial load, only if user explicitly tries to load
@@ -651,6 +656,7 @@ export default function AdminSettings() {
           url: settings.downloadClient.url,
           username: settings.downloadClient.username,
           password: settings.downloadClient.password,
+          disableSSLVerify: settings.downloadClient.disableSSLVerify,
           remotePathMappingEnabled: settings.downloadClient.remotePathMappingEnabled,
           remotePath: settings.downloadClient.remotePath,
           localPath: settings.downloadClient.localPath,
@@ -846,12 +852,12 @@ export default function AdminSettings() {
             throw new Error('Failed to save Prowlarr settings');
           }
 
-          // Save indexer configuration if indexers are loaded
+          // Save indexer configuration and flag configs if indexers are loaded
           if (indexers.length > 0) {
             const indexersResponse = await fetchWithAuth('/api/admin/settings/prowlarr/indexers', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ indexers }),
+              body: JSON.stringify({ indexers, flagConfigs }),
             });
 
             if (!indexersResponse.ok) {
@@ -1456,6 +1462,54 @@ export default function AdminSettings() {
                     </div>
                   )}
                 </div>
+
+                {/* Flag Configuration Section */}
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                  <div className="mb-4">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                      Indexer Flag Configuration (Optional)
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Configure score bonuses or penalties for indexer flags like "Freeleech".
+                      These modifiers apply universally across all indexers and affect final torrent ranking.
+                    </p>
+                  </div>
+
+                  {flagConfigs.length > 0 && (
+                    <div className="space-y-3 mb-4">
+                      {flagConfigs.map((config, index) => (
+                        <FlagConfigRow
+                          key={index}
+                          config={config}
+                          onChange={(updated) => {
+                            const newConfigs = [...flagConfigs];
+                            newConfigs[index] = updated;
+                            setFlagConfigs(newConfigs);
+                          }}
+                          onRemove={() => {
+                            setFlagConfigs(flagConfigs.filter((_, i) => i !== index));
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  <Button
+                    onClick={() => {
+                      setFlagConfigs([...flagConfigs, { name: '', modifier: 0 }]);
+                    }}
+                    variant="outline"
+                    size="sm"
+                  >
+                    + Add Flag Rule
+                  </Button>
+
+                  {flagConfigs.length === 0 && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-3 italic">
+                      No flag rules configured. Flag bonuses/penalties are optional.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1550,6 +1604,42 @@ export default function AdminSettings() {
                     placeholder="Enter password"
                   />
                 </div>
+
+                {/* SSL Verification Toggle */}
+                {settings.downloadClient.url.startsWith('https') && (
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        id="disable-ssl-verify"
+                        checked={settings.downloadClient.disableSSLVerify}
+                        onChange={(e) => {
+                          setSettings({
+                            ...settings,
+                            downloadClient: {
+                              ...settings.downloadClient,
+                              disableSSLVerify: e.target.checked,
+                            },
+                          });
+                          setValidated({ ...validated, download: false });
+                        }}
+                        className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                      />
+                      <div className="flex-1">
+                        <label
+                          htmlFor="disable-ssl-verify"
+                          className="block text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+                        >
+                          Disable SSL Certificate Verification
+                        </label>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                          Enable this if you're using a self-signed certificate or getting SSL errors.
+                          <span className="text-yellow-700 dark:text-yellow-500 font-medium"> ⚠️ Only use on trusted private networks.</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Remote Path Mapping */}
                 <div className="mt-6 bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
