@@ -49,7 +49,9 @@ interface ProwlarrSearchResult {
   seeders: number;
   leechers: number;
   publishDate: string;
-  downloadUrl: string;
+  downloadUrl?: string;  // Torrent file download URL (most indexers)
+  magnetUrl?: string;    // Magnet link (public trackers like TPB)
+  infoUrl?: string;      // Link to indexer's info page
   infoHash?: string;
   categories?: number[];
   downloadVolumeFactor?: number;
@@ -104,14 +106,22 @@ export class ProwlarrService {
 
       const response = await this.client.get('/search', { params });
 
-      // Debug: Log first raw result to see structure
-      if (response.data.length > 0) {
+      // Debug: Log first raw result to see structure (debug mode only)
+      if (process.env.LOG_LEVEL === 'debug' && response.data.length > 0) {
         console.log('[Prowlarr] Sample raw result from API:', JSON.stringify(response.data[0], null, 2));
+        console.log(`[Prowlarr] Received ${response.data.length} total results from API`);
       }
 
       // Transform Prowlarr results to our format
       const results = response.data
-        .map((result: ProwlarrSearchResult) => this.transformResult(result))
+        .map((result: ProwlarrSearchResult, index: number) => {
+          const transformed = this.transformResult(result);
+          if (!transformed && process.env.LOG_LEVEL === 'debug') {
+            // Log the full raw result that was skipped (debug mode only)
+            console.log(`[Prowlarr] Result #${index + 1} was skipped. Raw data:`, JSON.stringify(result, null, 2));
+          }
+          return transformed;
+        })
         .filter((result: TorrentResult | null) => result !== null) as TorrentResult[];
 
       // Filter by protocol based on configured download client
@@ -251,6 +261,7 @@ export class ProwlarrService {
             leechers,
             publishDate: item.pubDate ? new Date(item.pubDate) : new Date(),
             downloadUrl: downloadUrl.trim(),
+            infoUrl: item.comments || undefined,  // RSS feeds often have comments field with info URL
             infoHash: getAttr('infohash'),
             guid: item.guid || '',
             format: metadata.format,
@@ -352,9 +363,12 @@ export class ProwlarrService {
    */
   private transformResult(result: ProwlarrSearchResult): TorrentResult | null {
     try {
-      // Validate download URL
-      if (!result.downloadUrl || typeof result.downloadUrl !== 'string' || result.downloadUrl.trim() === '') {
-        console.warn(`[Prowlarr] Skipping result "${result.title}" - missing download URL`);
+      // Get download URL - prefer downloadUrl (torrent file), fallback to magnetUrl (magnet link)
+      const downloadUrl = result.downloadUrl || result.magnetUrl || '';
+
+      // Validate we have a valid download URL
+      if (!downloadUrl || typeof downloadUrl !== 'string' || downloadUrl.trim() === '') {
+        console.warn(`[Prowlarr] Skipping result "${result.title}" - missing both downloadUrl and magnetUrl`);
         return null;
       }
 
@@ -372,7 +386,8 @@ export class ProwlarrService {
         seeders: result.seeders,
         leechers: result.leechers,
         publishDate: new Date(result.publishDate),
-        downloadUrl: result.downloadUrl.trim(),
+        downloadUrl: downloadUrl.trim(),
+        infoUrl: result.infoUrl,
         infoHash: result.infoHash,
         guid: result.guid,
         format: metadata.format,

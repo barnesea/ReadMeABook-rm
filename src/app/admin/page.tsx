@@ -5,15 +5,15 @@
 
 'use client';
 
-import { useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { authenticatedFetcher } from '@/lib/utils/api';
 import { MetricCard } from './components/MetricCard';
 import { ActiveDownloadsTable } from './components/ActiveDownloadsTable';
 import { RecentRequestsTable } from './components/RecentRequestsTable';
+import { ToastProvider } from '@/components/ui/Toast';
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   // Fetch data with auto-refresh every 10 seconds
   const { data: metrics, error: metricsError } = useSWR(
     '/api/admin/metrics',
@@ -36,6 +36,14 @@ export default function AdminDashboard() {
     authenticatedFetcher,
     {
       refreshInterval: 10000,
+    }
+  );
+
+  const { data: settingsData } = useSWR(
+    '/api/admin/settings',
+    authenticatedFetcher,
+    {
+      refreshInterval: 60000, // Settings change infrequently
     }
   );
 
@@ -202,7 +210,10 @@ export default function AdminDashboard() {
               <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-4">
                 Recent Requests
               </h2>
-              <RecentRequestsTable requests={requestsData.requests} />
+              <RecentRequestsTable
+                requests={requestsData.requests}
+                ebookSidecarEnabled={settingsData?.ebook?.enabled || false}
+              />
             </div>
 
             {/* Quick Actions */}
@@ -296,5 +307,13 @@ export default function AdminDashboard() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function AdminDashboard() {
+  return (
+    <ToastProvider>
+      <AdminDashboardContent />
+    </ToastProvider>
   );
 }

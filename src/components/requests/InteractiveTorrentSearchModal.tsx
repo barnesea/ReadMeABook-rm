@@ -235,7 +235,7 @@ export function InteractiveTorrentSearchModal({
                         <td className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100">
                           <div className="truncate">
                             <a
-                              href={result.guid}
+                              href={result.infoUrl || result.guid}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"

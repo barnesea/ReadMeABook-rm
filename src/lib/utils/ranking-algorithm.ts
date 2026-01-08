@@ -14,6 +14,7 @@ export interface TorrentResult {
   leechers: number;
   publishDate: Date;
   downloadUrl: string;
+  infoUrl?: string;     // Link to indexer's info page (for user reference)
   infoHash?: string;
   guid: string;
   format?: 'M4B' | 'M4A' | 'MP3' | 'OTHER';
@@ -273,9 +274,10 @@ export class RankingAlgorithm {
     torrent: TorrentResult,
     audiobook: AudiobookRequest
   ): number {
-    const torrentTitle = torrent.title.toLowerCase();
-    const requestTitle = audiobook.title.toLowerCase();
-    const requestAuthor = audiobook.author.toLowerCase();
+    // Normalize whitespace (multiple spaces → single space) for consistent matching
+    const torrentTitle = torrent.title.toLowerCase().replace(/\s+/g, ' ').trim();
+    const requestTitle = audiobook.title.toLowerCase().replace(/\s+/g, ' ').trim();
+    const requestAuthor = audiobook.author.toLowerCase().replace(/\s+/g, ' ').trim();
 
     // ========== STAGE 1: WORD COVERAGE FILTER (MANDATORY) ==========
     // Extract significant words (filter out common stop words)
@@ -353,8 +355,14 @@ export class RankingAlgorithm {
         // 1. Acceptable prefix (no words, OR structured metadata like "Author - Series - ")
         // 2. Followed by clear metadata markers (not "'s Secret" or " Is Watching")
         const metadataMarkers = [' by ', ' - ', ' [', ' (', ' {', ' :', ','];
+
+        // Check if afterTitle starts with author name (handles space-separated format like "Title Author Year")
+        const afterStartsWithAuthor = requestAuthor.length > 2 &&
+          afterTitle.trim().startsWith(requestAuthor);
+
         const hasMetadataSuffix = afterTitle === '' ||
-                                  metadataMarkers.some(marker => afterTitle.startsWith(marker));
+                                  metadataMarkers.some(marker => afterTitle.startsWith(marker)) ||
+                                  afterStartsWithAuthor;
 
         // Check prefix validity:
         // - No words before = clean match

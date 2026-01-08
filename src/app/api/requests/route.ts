@@ -20,7 +20,7 @@ const CreateRequestSchema = z.object({
     coverArtUrl: z.string().optional(),
     durationMinutes: z.number().optional(),
     releaseDate: z.string().optional(),
-    rating: z.number().optional(),
+    rating: z.number().nullable().optional(),
   }),
 });
 

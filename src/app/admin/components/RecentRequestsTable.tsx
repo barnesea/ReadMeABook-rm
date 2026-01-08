@@ -11,6 +11,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { RequestActionsDropdown } from './RequestActionsDropdown';
 import { mutate } from 'swr';
 import { fetchWithAuth } from '@/lib/utils/api';
+import { useToast } from '@/components/ui/Toast';
 
 interface RecentRequest {
   requestId: string;
@@ -26,6 +27,7 @@ interface RecentRequest {
 
 interface RecentRequestsTableProps {
   requests: RecentRequest[];
+  ebookSidecarEnabled?: boolean;
 }
 
 function getStatusBadge(status: string) {
@@ -62,13 +64,15 @@ function getStatusBadge(status: string) {
   );
 }
 
-export function RecentRequestsTable({ requests }: RecentRequestsTableProps) {
+export function RecentRequestsTable({ requests, ebookSidecarEnabled = false }: RecentRequestsTableProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<{
     id: string;
     title: string;
   } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isFetchingEbook, setIsFetchingEbook] = useState(false);
+  const toast = useToast();
 
   const handleDeleteClick = (requestId: string, title: string) => {
     setSelectedRequest({ id: requestId, title });
@@ -110,11 +114,7 @@ export function RecentRequestsTable({ requests }: RecentRequestsTableProps) {
       setSelectedRequest(null);
     } catch (error) {
       console.error('[Admin] Failed to delete request:', error);
-      alert(
-        `Failed to delete request: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
-      );
+      toast.error(`Failed to delete request: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsDeleting(false);
     }
@@ -144,11 +144,7 @@ export function RecentRequestsTable({ requests }: RecentRequestsTableProps) {
       await mutate('/api/admin/requests/recent');
     } catch (error) {
       console.error('[Admin] Failed to trigger manual search:', error);
-      alert(
-        `Failed to trigger manual search: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
-      );
+      toast.error(`Failed to trigger manual search: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -172,11 +168,36 @@ export function RecentRequestsTable({ requests }: RecentRequestsTableProps) {
       await mutate('/api/admin/requests/recent');
     } catch (error) {
       console.error('[Admin] Failed to cancel request:', error);
-      alert(
-        `Failed to cancel request: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
-      );
+      toast.error(`Failed to cancel request: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleFetchEbook = async (requestId: string) => {
+    setIsFetchingEbook(true);
+    try {
+      const response = await fetchWithAuth(`/api/requests/${requestId}/fetch-ebook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Failed to fetch e-book');
+      }
+
+      if (data.success) {
+        toast.success(data.message || 'E-book fetched successfully');
+      } else {
+        toast.warning(`E-book fetch failed: ${data.message}`);
+      }
+    } catch (error) {
+      console.error('[Admin] Failed to fetch e-book:', error);
+      toast.error(`Failed to fetch e-book: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsFetchingEbook(false);
     }
   };
 
@@ -282,7 +303,9 @@ export function RecentRequestsTable({ requests }: RecentRequestsTableProps) {
                     onDelete={handleDeleteClick}
                     onManualSearch={handleManualSearch}
                     onCancel={handleCancel}
-                    isLoading={isDeleting}
+                    onFetchEbook={handleFetchEbook}
+                    ebookSidecarEnabled={ebookSidecarEnabled}
+                    isLoading={isDeleting || isFetchingEbook}
                   />
                 </td>
               </tr>

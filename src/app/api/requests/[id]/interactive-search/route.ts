@@ -123,30 +123,18 @@ export async function POST(
         author: requestRecord.audiobook.author,
       }, indexerPriorities, flagConfigs);
 
-      // Dual threshold filtering:
-      // 1. Base score must be >= 50 (quality minimum)
-      // 2. Final score must be >= 50 (not disqualified by negative bonuses)
-      const filteredResults = rankedResults.filter(result =>
-        result.score >= 50 && result.finalScore >= 50
-      );
-
-      const disqualifiedByNegativeBonus = rankedResults.filter(result =>
-        result.score >= 50 && result.finalScore < 50
-      ).length;
-
-      console.log(`[InteractiveSearch] Ranked ${rankedResults.length} results, ${filteredResults.length} above threshold (50/100 base + final)`);
-      if (disqualifiedByNegativeBonus > 0) {
-        console.log(`[InteractiveSearch] ${disqualifiedByNegativeBonus} torrents disqualified by negative flag bonuses`);
-      }
+      // No threshold filtering for interactive search - show all results
+      // User can see scores and make their own decision
+      console.log(`[InteractiveSearch] Ranked ${rankedResults.length} results (no threshold filter - user decides)`);
 
       // Log top 3 results with detailed score breakdown for debugging
-      const top3 = filteredResults.slice(0, 3);
+      const top3 = rankedResults.slice(0, 3);
       if (top3.length > 0) {
         console.log(`[InteractiveSearch] ==================== RANKING DEBUG ====================`);
         console.log(`[InteractiveSearch] Search Query: "${searchQuery}"`);
         console.log(`[InteractiveSearch] Requested Title (for ranking): "${requestRecord.audiobook.title}"`);
         console.log(`[InteractiveSearch] Requested Author (for ranking): "${requestRecord.audiobook.author}"`);
-        console.log(`[InteractiveSearch] Top ${top3.length} results (out of ${filteredResults.length} above threshold):`);
+        console.log(`[InteractiveSearch] Top ${top3.length} results (out of ${rankedResults.length} total):`);
         console.log(`[InteractiveSearch] --------------------------------------------------------`);
         top3.forEach((result, index) => {
           console.log(`[InteractiveSearch] ${index + 1}. "${result.title}"`);
@@ -177,7 +165,7 @@ export async function POST(
       }
 
       // Add rank position to each result
-      const resultsWithRank = filteredResults.map((result, index) => ({
+      const resultsWithRank = rankedResults.map((result, index) => ({
         ...result,
         rank: index + 1,
       }));
@@ -185,9 +173,9 @@ export async function POST(
       return NextResponse.json({
         success: true,
         results: resultsWithRank,
-        message: filteredResults.length > 0
-          ? `Found ${filteredResults.length} quality matches`
-          : 'No quality matches found',
+        message: rankedResults.length > 0
+          ? `Found ${rankedResults.length} results`
+          : 'No results found',
       });
     } catch (error) {
       console.error('Failed to perform interactive search:', error);
