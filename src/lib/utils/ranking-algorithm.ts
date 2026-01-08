@@ -10,8 +10,8 @@ export interface TorrentResult {
   indexerId?: number;
   title: string;
   size: number;
-  seeders: number;
-  leechers: number;
+  seeders?: number;     // Optional for NZB/Usenet results (no seeders concept)
+  leechers?: number;    // Optional for NZB/Usenet results (no leechers concept)
   publishDate: Date;
   downloadUrl: string;
   infoUrl?: string;     // Link to indexer's info page (for user reference)
@@ -21,6 +21,7 @@ export interface TorrentResult {
   bitrate?: string;
   hasChapters?: boolean;
   flags?: string[];     // Indexer flags like "Freeleech", "Internal", etc.
+  protocol?: string;    // 'torrent' or 'usenet' - from Prowlarr API
 }
 
 export interface AudiobookRequest {
@@ -45,7 +46,6 @@ export interface BonusModifier {
 export interface ScoreBreakdown {
   formatScore: number;
   seederScore: number;
-  sizeScore: number;
   matchScore: number;
   totalScore: number;
   notes: string[];
@@ -78,10 +78,9 @@ export class RankingAlgorithm {
       // Calculate base scores (0-100)
       const formatScore = this.scoreFormat(torrent);
       const seederScore = this.scoreSeeders(torrent.seeders);
-      const sizeScore = this.scoreSize(torrent.size, audiobook.durationMinutes);
       const matchScore = this.scoreMatch(torrent, audiobook);
 
-      const baseScore = formatScore + seederScore + sizeScore + matchScore;
+      const baseScore = formatScore + seederScore + matchScore;
 
       // Calculate bonus modifiers
       const bonusModifiers: BonusModifier[] = [];
@@ -138,13 +137,11 @@ export class RankingAlgorithm {
         breakdown: {
           formatScore,
           seederScore,
-          sizeScore,
           matchScore,
           totalScore: baseScore,
           notes: this.generateNotes(torrent, {
             formatScore,
             seederScore,
-            sizeScore,
             matchScore,
             totalScore: baseScore,
             notes: [],
@@ -180,20 +177,17 @@ export class RankingAlgorithm {
   ): ScoreBreakdown {
     const formatScore = this.scoreFormat(torrent);
     const seederScore = this.scoreSeeders(torrent.seeders);
-    const sizeScore = this.scoreSize(torrent.size, audiobook.durationMinutes);
     const matchScore = this.scoreMatch(torrent, audiobook);
-    const totalScore = formatScore + seederScore + sizeScore + matchScore;
+    const totalScore = formatScore + seederScore + matchScore;
 
     return {
       formatScore,
       seederScore,
-      sizeScore,
       matchScore,
       totalScore,
       notes: this.generateNotes(torrent, {
         formatScore,
         seederScore,
-        sizeScore,
         matchScore,
         totalScore,
         notes: [],
@@ -231,43 +225,23 @@ export class RankingAlgorithm {
    * 10 seeders: 6 points
    * 100 seeders: 12 points
    * 1000+ seeders: 15 points
+   *
+   * Note: NZB/Usenet results don't have seeders concept - centralized servers provide guaranteed availability
    */
-  private scoreSeeders(seeders: number): number {
+  private scoreSeeders(seeders: number | undefined): number {
+    // Handle undefined/null (NZB results) - give full score since Usenet has centralized availability
+    if (seeders === undefined || seeders === null || isNaN(seeders)) {
+      return 15; // Full score - Usenet doesn't need seeders, content is on centralized servers
+    }
+
     if (seeders === 0) return 0;
     return Math.min(15, Math.log10(seeders + 1) * 6);
   }
 
-  /**
-   * Score size reasonableness (10 points max)
-   * Expected: 1-2 MB per minute (64-128 kbps)
-   * Perfect match: 10 points
-   * Too small/large: Reduced points
-   */
-  private scoreSize(size: number, durationMinutes?: number): number {
-    if (!durationMinutes) {
-      return 5; // Neutral score if duration unknown
-    }
-
-    // Expected size: 1-2 MB per minute
-    const minExpected = durationMinutes * 1024 * 1024; // 1 MB/min
-    const maxExpected = durationMinutes * 2 * 1024 * 1024; // 2 MB/min
-
-    if (size >= minExpected && size <= maxExpected) {
-      return 10; // Perfect size
-    }
-
-    // Calculate deviation penalty
-    const deviation =
-      size < minExpected
-        ? (minExpected - size) / minExpected
-        : (size - maxExpected) / maxExpected;
-
-    return Math.max(0, 10 - deviation * 10);
-  }
 
   /**
-   * Score title/author match quality (50 points max)
-   * Title similarity: 0-35 points (heavily weighted!)
+   * Score title/author match quality (60 points max)
+   * Title similarity: 0-45 points (heavily weighted!)
    * Author presence: 0-15 points
    */
   private scoreMatch(
@@ -392,7 +366,7 @@ export class RankingAlgorithm {
 
         if (isCompleteTitle) {
           // Complete title match → full points
-          titleScore = 35;
+          titleScore = 45;
           bestMatch = true;
           break; // Found a good match, stop trying
         }
@@ -403,7 +377,7 @@ export class RankingAlgorithm {
       // No complete match found, use fuzzy similarity as fallback
       // Try against full title first, then required title
       const fuzzyScores = titlesToTry.map(title => compareTwoStrings(title, torrentTitle));
-      titleScore = Math.max(...fuzzyScores) * 35;
+      titleScore = Math.max(...fuzzyScores) * 45;
     }
 
     // ========== STAGE 3: AUTHOR MATCHING (0-15 points) ==========
@@ -427,7 +401,7 @@ export class RankingAlgorithm {
       authorScore = compareTwoStrings(requestAuthor, torrentTitle) * 15;
     }
 
-    return Math.min(50, titleScore + authorScore);
+    return Math.min(60, titleScore + authorScore);
   }
 
   /**
@@ -474,26 +448,23 @@ export class RankingAlgorithm {
       notes.push('Unknown or uncommon format');
     }
 
-    // Seeder notes
-    if (torrent.seeders === 0) {
-      notes.push('⚠️ No seeders available');
-    } else if (torrent.seeders < 5) {
-      notes.push(`Low seeders (${torrent.seeders})`);
-    } else if (torrent.seeders >= 50) {
-      notes.push(`Excellent availability (${torrent.seeders} seeders)`);
+    // Seeder notes (skip for NZB/Usenet results which don't have seeders)
+    if (torrent.seeders !== undefined && torrent.seeders !== null && !isNaN(torrent.seeders)) {
+      if (torrent.seeders === 0) {
+        notes.push('⚠️ No seeders available');
+      } else if (torrent.seeders < 5) {
+        notes.push(`Low seeders (${torrent.seeders})`);
+      } else if (torrent.seeders >= 50) {
+        notes.push(`Excellent availability (${torrent.seeders} seeders)`);
+      }
     }
 
-    // Size notes
-    if (breakdown.sizeScore < 5) {
-      notes.push('⚠️ Unusual file size');
-    }
-
-    // Match notes (now worth 50 points!)
-    if (breakdown.matchScore < 20) {
+    // Match notes (now worth 60 points!)
+    if (breakdown.matchScore < 24) {
       notes.push('⚠️ Poor title/author match');
-    } else if (breakdown.matchScore < 35) {
+    } else if (breakdown.matchScore < 42) {
       notes.push('⚠️ Weak title/author match');
-    } else if (breakdown.matchScore >= 45) {
+    } else if (breakdown.matchScore >= 54) {
       notes.push('✓ Excellent title/author match');
     }
 

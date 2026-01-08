@@ -46,8 +46,8 @@ interface ProwlarrSearchResult {
   indexerId?: number;
   title: string;
   size: number;
-  seeders: number;
-  leechers: number;
+  seeders?: number;     // Optional for NZB/Usenet results
+  leechers?: number;    // Optional for NZB/Usenet results
   publishDate: string;
   downloadUrl?: string;  // Torrent file download URL (most indexers)
   magnetUrl?: string;    // Magnet link (public trackers like TPB)
@@ -57,6 +57,7 @@ interface ProwlarrSearchResult {
   downloadVolumeFactor?: number;
   uploadVolumeFactor?: number;
   indexerFlags?: string[] | number[];  // Can be string names or numeric IDs
+  protocol?: string;  // 'torrent' or 'usenet' - provided by Prowlarr API
   [key: string]: any;  // Allow any additional fields from Prowlarr API
 }
 
@@ -77,8 +78,27 @@ export class ProwlarrService {
       },
       timeout: 30000, // 30 seconds
       paramsSerializer: {
-        indexes: null, // Use repeat format: indexerIds=1&indexerIds=2 (not indexerIds[0]=1)
+        serialize: (params) => {
+          // Custom serializer to handle arrays correctly for Prowlarr API
+          // indexerIds=[1,2,3] should become indexerIds=1&indexerIds=2&indexerIds=3
+          const parts: string[] = [];
+          for (const [key, value] of Object.entries(params)) {
+            if (Array.isArray(value)) {
+              value.forEach(v => parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`));
+            } else if (value !== undefined && value !== null) {
+              parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+            }
+          }
+          return parts.join('&');
+        },
       },
+    });
+
+    // Debug interceptor to log actual outgoing requests
+    this.client.interceptors.request.use((config) => {
+      console.log(`[Prowlarr] Actual request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+      console.log(`[Prowlarr] Request params:`, JSON.stringify(config.params));
+      return config;
     });
   }
 
@@ -91,25 +111,44 @@ export class ProwlarrService {
     filters?: SearchFilters
   ): Promise<TorrentResult[]> {
     try {
+      // Get configured download client type to determine if we should filter by category
+      const { getConfigService } = await import('../services/config.service');
+      const configService = getConfigService();
+      const clientType = (await configService.get('download_client_type')) || 'qbittorrent';
+
       const params: Record<string, any> = {
         query,
-        categories: filters?.category?.toString() || this.defaultCategory.toString(),
         type: 'search',
+        limit: 100, // Maximum results to return from Prowlarr
         extended: 1, // Enable searching in tags, labels, and metadata
+        categories: filters?.category?.toString() || this.defaultCategory.toString(), // 3030 = Audiobooks (standard Newznab category)
       };
 
       // Filter by specific indexers if provided
-      // Pass array directly - axios will serialize as indexerIds=1&indexerIds=2&indexerIds=3
       if (filters?.indexerIds && filters.indexerIds.length > 0) {
         params.indexerIds = filters.indexerIds;
       }
 
       const response = await this.client.get('/search', { params });
+      console.log(`[Prowlarr] Raw API response: ${response.data.length} results`);
 
-      // Debug: Log first raw result to see structure (debug mode only)
+      // Debug: Log first raw result to see structure and protocol field
+      if (response.data.length > 0) {
+        const firstResult = response.data[0];
+        console.log(`[Prowlarr] First raw result - protocol: "${firstResult.protocol}", indexer: "${firstResult.indexer}", title: "${firstResult.title?.substring(0, 50)}..."`);
+
+        // Check protocol distribution in raw results
+        const rawProtocols = response.data.reduce((acc: Record<string, number>, r: any) => {
+          const proto = r.protocol || 'missing';
+          acc[proto] = (acc[proto] || 0) + 1;
+          return acc;
+        }, {});
+        console.log(`[Prowlarr] Raw protocol distribution:`, JSON.stringify(rawProtocols));
+      }
+
+      // Debug: Log first raw result full structure (debug mode only)
       if (process.env.LOG_LEVEL === 'debug' && response.data.length > 0) {
         console.log('[Prowlarr] Sample raw result from API:', JSON.stringify(response.data[0], null, 2));
-        console.log(`[Prowlarr] Received ${response.data.length} total results from API`);
       }
 
       // Transform Prowlarr results to our format
@@ -130,7 +169,12 @@ export class ProwlarrService {
       // Apply additional filters
 
       if (filters?.minSeeders) {
-        filtered = filtered.filter((r) => r.seeders >= (filters.minSeeders || 0));
+        // Only apply seeder filter to torrent results (NZB results don't have seeders)
+        filtered = filtered.filter((r) => {
+          // Skip filter for NZB results (undefined seeders)
+          if (r.seeders === undefined) return true;
+          return r.seeders >= (filters.minSeeders || 0);
+        });
       }
 
       if (filters?.maxResults) {
@@ -318,6 +362,26 @@ export class ProwlarrService {
       const config = await getConfigService();
       const clientType = (await config.get('download_client_type')) || 'qbittorrent';
 
+      // Debug: Log protocol distribution
+      const protocolCounts = results.reduce((acc, r) => {
+        const proto = r.protocol || 'unknown';
+        acc[proto] = (acc[proto] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`[Prowlarr] Protocol distribution in ${results.length} results:`, JSON.stringify(protocolCounts));
+
+      // Debug: Log first few results to see their protocols
+      if (results.length > 0 && results.length <= 5) {
+        results.forEach((r, i) => {
+          console.log(`[Prowlarr] Result ${i + 1}: protocol="${r.protocol || 'undefined'}", url="${r.downloadUrl.substring(0, 80)}..."`);
+        });
+      } else if (results.length > 5) {
+        console.log(`[Prowlarr] First 3 results:`);
+        results.slice(0, 3).forEach((r, i) => {
+          console.log(`[Prowlarr]   ${i + 1}: protocol="${r.protocol || 'undefined'}", isNZB=${ProwlarrService.isNZBResult(r)}`);
+        });
+      }
+
       if (clientType === 'sabnzbd') {
         // Filter for NZB results only
         const filtered = results.filter(result => ProwlarrService.isNZBResult(result));
@@ -340,6 +404,12 @@ export class ProwlarrService {
    * Static method for protocol detection
    */
   static isNZBResult(result: TorrentResult): boolean {
+    // Check protocol field first (most reliable - provided by Prowlarr API)
+    if (result.protocol) {
+      return result.protocol.toLowerCase() === 'usenet';
+    }
+
+    // Fallback to URL pattern detection if protocol not provided
     const url = result.downloadUrl.toLowerCase();
 
     // Check file extension
@@ -347,13 +417,10 @@ export class ProwlarrService {
       return true;
     }
 
-    // Check URL path
-    if (url.includes('/nzb/') || url.includes('&t=get')) {
+    // Check URL path patterns common in Newznab APIs
+    if (url.includes('/nzb/') || url.includes('&t=get') || url.includes('/getnzb')) {
       return true;
     }
-
-    // Check categories (3030 is audiobooks, but some indexers use Usenet-specific codes)
-    // Note: This is less reliable, so we prioritize URL patterns
 
     return false;
   }
@@ -394,6 +461,7 @@ export class ProwlarrService {
         bitrate: metadata.bitrate,
         hasChapters: metadata.hasChapters,
         flags: flags.length > 0 ? flags : undefined,
+        protocol: result.protocol, // 'torrent' or 'usenet'
       };
     } catch (error) {
       console.error('Failed to transform result:', result, error);

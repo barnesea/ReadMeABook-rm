@@ -1,6 +1,6 @@
 # Chapter Merging Feature
 
-**Status:** ❌ Not Started | Product Requirements Document
+**Status:** ✅ Implemented | Auto-merge multi-file chapters to M4B
 
 ## Overview
 

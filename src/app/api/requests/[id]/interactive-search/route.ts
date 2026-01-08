@@ -141,10 +141,9 @@ export async function POST(
           console.log(`[InteractiveSearch]    Indexer: ${result.indexer}${result.indexerId ? ` (ID: ${result.indexerId})` : ''}`);
           console.log(`[InteractiveSearch]    `);
           console.log(`[InteractiveSearch]    Base Score: ${result.score.toFixed(1)}/100`);
-          console.log(`[InteractiveSearch]    - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/50`);
+          console.log(`[InteractiveSearch]    - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/60`);
           console.log(`[InteractiveSearch]    - Format Quality: ${result.breakdown.formatScore.toFixed(1)}/25 (${result.format || 'unknown'})`);
           console.log(`[InteractiveSearch]    - Seeder Count: ${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders} seeders)`);
-          console.log(`[InteractiveSearch]    - Size Score: ${result.breakdown.sizeScore.toFixed(1)}/10 (${(result.size / (1024 ** 3)).toFixed(2)} GB)`);
           console.log(`[InteractiveSearch]    `);
           console.log(`[InteractiveSearch]    Bonus Points: +${result.bonusPoints.toFixed(1)}`);
           if (result.bonusModifiers.length > 0) {

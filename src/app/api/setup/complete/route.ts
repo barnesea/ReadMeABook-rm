@@ -412,6 +412,18 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Chapter merging configuration
+    await prisma.configuration.upsert({
+      where: { key: 'chapter_merging_enabled' },
+      update: { value: String(paths.chapter_merging_enabled ?? false) },
+      create: {
+        key: 'chapter_merging_enabled',
+        value: String(paths.chapter_merging_enabled ?? false),
+        category: 'automation',
+        description: 'Automatically merge multi-file chapter downloads into single M4B with chapter markers'
+      },
+    });
+
     // BookDate configuration (optional, global for all users)
     // Note: libraryScope and customPrompt are now per-user settings, not required here
     if (bookdate && bookdate.provider && bookdate.apiKey && bookdate.model) {

@@ -132,7 +132,7 @@ export async function processDownloadTorrent(payload: DownloadTorrentPayload): P
           torrentSizeBytes: torrent.size,
           torrentUrl: torrent.guid,
           magnetLink: torrent.downloadUrl,
-          seeders: torrent.seeders,
+          seeders: torrent.seeders || 0,
           leechers: torrent.leechers || 0,
           downloadStatus: 'downloading',
           selected: true,
@@ -163,7 +163,7 @@ export async function processDownloadTorrent(payload: DownloadTorrentPayload): P
         torrent: {
           title: torrent.title,
           size: torrent.size,
-          seeders: torrent.seeders,
+          seeders: torrent.seeders || 0,
           format: torrent.format,
         },
       };

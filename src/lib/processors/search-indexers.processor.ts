@@ -104,7 +104,6 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
     const rankedResults = ranker.rankTorrents(searchResults, {
       title: audiobook.title,
       author: audiobook.author,
-      durationMinutes: undefined, // We don't have duration from Audible
     }, indexerPriorities, flagConfigs);
 
     // Dual threshold filtering:
@@ -160,10 +159,9 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
       await logger?.info(`   Indexer: ${result.indexer}${result.indexerId ? ` (ID: ${result.indexerId})` : ''}`);
       await logger?.info(``);
       await logger?.info(`   Base Score: ${result.score.toFixed(1)}/100`);
-      await logger?.info(`   - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/50`);
+      await logger?.info(`   - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/60`);
       await logger?.info(`   - Format Quality: ${result.breakdown.formatScore.toFixed(1)}/25 (${result.format || 'unknown'})`);
-      await logger?.info(`   - Seeder Count: ${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders} seeders)`);
-      await logger?.info(`   - Size Score: ${result.breakdown.sizeScore.toFixed(1)}/10`);
+      await logger?.info(`   - Seeder Count: ${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders !== undefined ? result.seeders + ' seeders' : 'N/A for Usenet'})`);
       await logger?.info(``);
       await logger?.info(`   Bonus Points: +${result.bonusPoints.toFixed(1)}`);
       if (result.bonusModifiers.length > 0) {
@@ -199,7 +197,7 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
       selectedTorrent: {
         title: bestResult.title,
         score: bestResult.score,
-        seeders: bestResult.seeders,
+        seeders: bestResult.seeders || 0,
         format: bestResult.format,
       },
     };

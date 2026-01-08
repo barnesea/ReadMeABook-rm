@@ -267,6 +267,8 @@ export class SABnzbdService {
    * Returns the NZB ID
    */
   async addNZB(url: string, options?: AddNZBOptions): Promise<string> {
+    console.log(`[SABnzbd] Adding NZB from URL: ${url.substring(0, 150)}...`);
+
     const response = await this.client.get('/api', {
       params: {
         mode: 'addurl',

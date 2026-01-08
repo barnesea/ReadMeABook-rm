@@ -344,11 +344,18 @@ async function searchByAsin(
     const html = await fetchHtml(searchUrl, flaresolverrUrl, logger);
     const $ = cheerio.load(html);
 
-    // Exclude MD5 links from "Recent downloads" banner (they're in .js-recent-downloads-container)
+    // Exclude MD5 links from "Recent downloads" banner and "Partial matches" section
     // Only look for actual search result links
     const searchResultLinks = $('a[href*="/md5/"]').filter((i, elem) => {
       // Exclude links inside the recent downloads banner
-      return $(elem).closest('.js-recent-downloads-container').length === 0;
+      if ($(elem).closest('.js-recent-downloads-container').length > 0) {
+        return false;
+      }
+      // Exclude links inside the partial matches section
+      if ($(elem).closest('.js-partial-matches-show').length > 0) {
+        return false;
+      }
+      return true;
     });
 
     if (DEBUG_ENABLED) {
@@ -451,9 +458,17 @@ async function searchByTitle(
     const html = await fetchHtml(searchUrl, flaresolverrUrl, logger);
     const $ = cheerio.load(html);
 
-    // Exclude MD5 links from "Recent downloads" banner (they're in .js-recent-downloads-container)
+    // Exclude MD5 links from "Recent downloads" banner and "Partial matches" section
     const searchResultLinks = $('a[href*="/md5/"]').filter((i, elem) => {
-      return $(elem).closest('.js-recent-downloads-container').length === 0;
+      // Exclude links inside the recent downloads banner
+      if ($(elem).closest('.js-recent-downloads-container').length > 0) {
+        return false;
+      }
+      // Exclude links inside the partial matches section
+      if ($(elem).closest('.js-partial-matches-show').length > 0) {
+        return false;
+      }
+      return true;
     });
 
     if (DEBUG_ENABLED) {

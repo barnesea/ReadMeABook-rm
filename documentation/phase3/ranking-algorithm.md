@@ -6,7 +6,7 @@ Evaluates and scores torrents to automatically select best audiobook download.
 
 ## Scoring Criteria (100 points max)
 
-**1. Title/Author Match (50 pts max) - MOST IMPORTANT**
+**1. Title/Author Match (60 pts max) - MOST IMPORTANT**
 
 **Multi-Stage Matching:**
 
@@ -24,7 +24,7 @@ Evaluates and scores torrents to automatically select best audiobook download.
   - "Dennis E. Taylor - Bobiverse - 01 - We Are Legion" → 3/3 = 100% → **PASSES**
 - Prevents wrong series books from matching while handling common subtitle patterns
 
-**Stage 2: Title Matching (0-35 pts)**
+**Stage 2: Title Matching (0-45 pts)**
 - Only scored if Stage 1 passes
 - **Tries full title first, then required title (without parentheses)** if no match
   - Example: "We Are Legion (We Are Bob)" tries both full title and "We Are Legion"
@@ -35,7 +35,7 @@ Evaluates and scores torrents to automatically select best audiobook download.
     - Title preceded by metadata separator (` - `, `: `, `—`) — handles "Author - Series - 01 - Title"
     - Author name appears in prefix — handles "Author Name - Title"
   - **Acceptable suffix**: Followed by metadata markers: " by", " [", " -", " (", " {", " :", "," or end of string
-- Complete match → 35 pts
+- Complete match → 45 pts
 - Unstructured prefix (words without separators) → fuzzy similarity (partial credit)
   - Prevents: "This Inevitable Ruin Dungeon Crawler Carl" matching "Dungeon Crawler Carl"
 - Suffix continues with non-metadata → fuzzy similarity (partial credit)
@@ -61,12 +61,7 @@ Evaluates and scores torrents to automatically select best audiobook download.
 **3. Seeder Count (15 pts max)**
 - Formula: `Math.min(15, Math.log10(seeders + 1) * 6)`
 - 1 seeder: 0pts, 10 seeders: 6pts, 100 seeders: 12pts, 1000+: 15pts
-
-**4. Size Reasonableness (10 pts max)**
-- Expected: 1-2 MB/min (64-128 kbps)
-- Perfect match: 10 pts
-- Deviation → penalty
-- Unknown duration: 5 pts (neutral)
+- Note: Usenet/NZB results without seeders get full 15 pts (centralized availability)
 
 ## Bonus Points System
 
@@ -148,7 +143,6 @@ interface RankedTorrent extends TorrentResult {
   breakdown: {
     formatScore: number;
     seederScore: number;
-    sizeScore: number;
     matchScore: number;
     totalScore: number;      // Same as score
     notes: string[];

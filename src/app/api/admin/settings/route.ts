@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
         downloadDir: configMap.get('download_dir') || '/downloads',
         mediaDir: configMap.get('media_dir') || '/media/audiobooks',
         metadataTaggingEnabled: configMap.get('metadata_tagging_enabled') === 'true',
+        chapterMergingEnabled: configMap.get('chapter_merging_enabled') === 'true',
       },
       ebook: {
         enabled: configMap.get('ebook_sidecar_enabled') === 'true',

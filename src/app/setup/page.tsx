@@ -84,6 +84,7 @@ interface SetupState {
   downloadDir: string;
   mediaDir: string;
   metadataTaggingEnabled: boolean;
+  chapterMergingEnabled: boolean;
   bookdateProvider: string;
   bookdateApiKey: string;
   bookdateModel: string;
@@ -153,6 +154,7 @@ export default function SetupWizard() {
     downloadDir: '/downloads',
     mediaDir: '/media/audiobooks',
     metadataTaggingEnabled: true,
+    chapterMergingEnabled: false,
     bookdateProvider: 'openai',
     bookdateApiKey: '',
     bookdateModel: '',
@@ -228,6 +230,7 @@ export default function SetupWizard() {
           download_dir: state.downloadDir,
           media_dir: state.mediaDir,
           metadata_tagging_enabled: state.metadataTaggingEnabled,
+          chapter_merging_enabled: state.chapterMergingEnabled,
         },
         bookdate: state.bookdateConfigured ? {
           provider: state.bookdateProvider,
@@ -525,6 +528,7 @@ export default function SetupWizard() {
           downloadDir={state.downloadDir}
           mediaDir={state.mediaDir}
           metadataTaggingEnabled={state.metadataTaggingEnabled}
+          chapterMergingEnabled={state.chapterMergingEnabled}
           onUpdate={updateField}
           onNext={() => goToStep(currentStepNumber + 1)}
           onBack={() => goToStep(currentStepNumber - 1)}

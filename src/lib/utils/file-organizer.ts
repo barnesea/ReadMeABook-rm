@@ -8,6 +8,14 @@ import path from 'path';
 import axios from 'axios';
 import { createJobLogger, JobLogger } from './job-logger';
 import { tagMultipleFiles, checkFfmpegAvailable } from './metadata-tagger';
+import {
+  detectChapterFiles,
+  analyzeChapterFiles,
+  mergeChapters,
+  formatDuration,
+  estimateOutputSize,
+  checkDiskSpace,
+} from './chapter-merger';
 import { prisma } from '../db';
 import { downloadEbook } from '../services/ebook-scraper';
 
@@ -83,6 +91,86 @@ export class FileOrganizer {
       // Determine base path for source files
       const baseSourcePath = isFile ? path.dirname(downloadPath) : downloadPath;
 
+      // Track if we created a merged file that needs cleanup
+      let tempMergedFile: string | null = null;
+
+      // Check for chapter merging if multiple files
+      if (audioFiles.length > 1) {
+        try {
+          const chapterMergingConfig = await prisma.configuration.findUnique({
+            where: { key: 'chapter_merging_enabled' },
+          });
+
+          const chapterMergingEnabled = chapterMergingConfig?.value === 'true';
+
+          if (chapterMergingEnabled) {
+            // Build full paths to source files
+            const sourceFilePaths = audioFiles.map((audioFile) =>
+              isFile ? downloadPath : path.join(downloadPath, audioFile)
+            );
+
+            const isChapterDownload = await detectChapterFiles(sourceFilePaths);
+
+            if (isChapterDownload) {
+              await logger?.info(`Detected ${audioFiles.length} chapter files, attempting merge...`);
+
+              // Check disk space
+              const estimatedSize = await estimateOutputSize(sourceFilePaths);
+              const availableSpace = await checkDiskSpace(this.tempDir);
+
+              if (availableSpace !== null && availableSpace < estimatedSize) {
+                await logger?.warn(`Insufficient disk space for merge (need ${Math.round(estimatedSize / 1024 / 1024)}MB, have ${Math.round(availableSpace / 1024 / 1024)}MB). Skipping merge.`);
+              } else {
+                // Analyze and order chapter files
+                const chapters = await analyzeChapterFiles(sourceFilePaths, logger ?? undefined);
+
+                // Create output path in temp directory
+                const outputFilename = `${this.sanitizePath(audiobook.title)}.m4b`;
+                const outputPath = path.join(this.tempDir, outputFilename);
+
+                // Perform merge
+                const mergeResult = await mergeChapters(
+                  chapters,
+                  {
+                    title: audiobook.title,
+                    author: audiobook.author,
+                    narrator: audiobook.narrator,
+                    year: audiobook.year,
+                    asin: audiobook.asin,
+                    outputPath,
+                  },
+                  logger ?? undefined
+                );
+
+                if (mergeResult.success && mergeResult.outputPath) {
+                  await logger?.info(
+                    `Merge successful: ${mergeResult.chapterCount} chapters, ${formatDuration(mergeResult.totalDuration || 0)}`
+                  );
+
+                  // Replace audioFiles array with single merged file
+                  audioFiles.length = 0;
+                  audioFiles.push(mergeResult.outputPath);
+
+                  // Mark for cleanup after copy
+                  tempMergedFile = mergeResult.outputPath;
+
+                  // Update isFile flag since we now have a single file path
+                  // (not in the download directory structure)
+                } else {
+                  await logger?.warn(`Chapter merge failed: ${mergeResult.error}. Falling back to individual files.`);
+                  result.errors.push(`Chapter merge failed: ${mergeResult.error}`);
+                  // Continue with original audioFiles array
+                }
+              }
+            }
+          }
+        } catch (error) {
+          await logger?.error(`Chapter merging error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          result.errors.push(`Chapter merging error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Continue with original audioFiles array
+        }
+      }
+
       // Tag metadata BEFORE moving files (prevents Plex race condition)
       // Map from original file path to tagged file path (for successful tags)
       const taggedFileMap = new Map<string, string>();
@@ -103,8 +191,13 @@ export class FileOrganizer {
             await logger?.info(`Tagging ${audioFiles.length} audio files with metadata (before move)...`);
 
             // Build full paths to source files for tagging
+            // Handle merged files (absolute paths) vs original files (relative paths)
             const sourceFilePaths = audioFiles.map((audioFile) =>
-              isFile ? downloadPath : path.join(downloadPath, audioFile)
+              path.isAbsolute(audioFile)
+                ? audioFile // Merged file - use path directly
+                : isFile
+                  ? downloadPath
+                  : path.join(downloadPath, audioFile)
             );
 
             const taggingResults = await tagMultipleFiles(sourceFilePaths, {
@@ -167,7 +260,13 @@ export class FileOrganizer {
 
       // Copy audio files (do NOT delete originals - needed for seeding)
       for (const audioFile of audioFiles) {
-        const originalSourcePath = isFile ? downloadPath : path.join(downloadPath, audioFile);
+        // Handle merged files (absolute paths) vs original files (relative paths)
+        const isAbsolutePath = path.isAbsolute(audioFile);
+        const originalSourcePath = isAbsolutePath
+          ? audioFile // Merged file - use path directly
+          : isFile
+            ? downloadPath
+            : path.join(downloadPath, audioFile);
         const filename = path.basename(audioFile);
         const targetFilePath = path.join(targetPath, filename);
 
@@ -231,6 +330,16 @@ export class FileOrganizer {
           await logger?.error(`Failed to copy ${filename}: ${errorMsg}`);
           result.errors.push(`Failed to copy ${audioFile}: ${errorMsg}`);
           // Continue with other files instead of throwing
+        }
+      }
+
+      // Clean up temp merged file after successful copy
+      if (tempMergedFile) {
+        try {
+          await fs.unlink(tempMergedFile);
+          await logger?.info(`Cleaned up temp merged file: ${path.basename(tempMergedFile)}`);
+        } catch (cleanupError) {
+          await logger?.warn(`Failed to clean up temp merged file: ${path.basename(tempMergedFile)}`);
         }
       }
 

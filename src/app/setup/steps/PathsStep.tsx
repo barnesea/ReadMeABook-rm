@@ -13,6 +13,7 @@ interface PathsStepProps {
   downloadDir: string;
   mediaDir: string;
   metadataTaggingEnabled: boolean;
+  chapterMergingEnabled: boolean;
   onUpdate: (field: string, value: string | boolean) => void;
   onNext: () => void;
   onBack: () => void;
@@ -22,6 +23,7 @@ export function PathsStep({
   downloadDir,
   mediaDir,
   metadataTaggingEnabled,
+  chapterMergingEnabled,
   onUpdate,
   onNext,
   onBack,
@@ -230,6 +232,31 @@ export function PathsStep({
                 Automatically write correct title, author, and narrator metadata to m4b and mp3 files
                 during file organization. This significantly improves Plex matching accuracy for audiobooks
                 with missing or incorrect metadata. Recommended: enabled.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Chapter Merging Toggle */}
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+          <div className="flex items-start gap-4">
+            <input
+              type="checkbox"
+              id="chapter-merging"
+              checked={chapterMergingEnabled}
+              onChange={(e) => onUpdate('chapterMergingEnabled', e.target.checked)}
+              className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div className="flex-1">
+              <label
+                htmlFor="chapter-merging"
+                className="block text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+              >
+                Auto-merge chapters to M4B
+              </label>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Automatically merge multi-file chapter downloads into a single M4B audiobook with chapter
+                markers. Improves playback experience and library organization.
               </p>
             </div>
           </div>

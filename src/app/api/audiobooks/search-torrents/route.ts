@@ -88,39 +88,26 @@ export async function POST(request: NextRequest) {
       // Rank torrents using the ranking algorithm with indexer priorities and flag configs
       const rankedResults = rankTorrents(results, { title, author }, indexerPriorities, flagConfigs);
 
-      // Dual threshold filtering:
-      // 1. Base score must be >= 50 (quality minimum)
-      // 2. Final score must be >= 50 (not disqualified by negative bonuses)
-      const filteredResults = rankedResults.filter(result =>
-        result.score >= 50 && result.finalScore >= 50
-      );
-
-      const disqualifiedByNegativeBonus = rankedResults.filter(result =>
-        result.score >= 50 && result.finalScore < 50
-      ).length;
-
-      console.log(`[AudiobookSearch] Ranked ${rankedResults.length} results, ${filteredResults.length} above threshold (50/100 base + final)`);
-      if (disqualifiedByNegativeBonus > 0) {
-        console.log(`[AudiobookSearch] ${disqualifiedByNegativeBonus} torrents disqualified by negative flag bonuses`);
-      }
+      // No threshold filtering - show all results like interactive search
+      // User can see scores and make their own decision
+      console.log(`[AudiobookSearch] Ranked ${rankedResults.length} results (no threshold filter - user decides)`);
 
       // Log top 3 results with detailed score breakdown for debugging
-      const top3 = filteredResults.slice(0, 3);
+      const top3 = rankedResults.slice(0, 3);
       if (top3.length > 0) {
         console.log(`[AudiobookSearch] ==================== RANKING DEBUG ====================`);
         console.log(`[AudiobookSearch] Requested Title: "${title}"`);
         console.log(`[AudiobookSearch] Requested Author: "${author}"`);
-        console.log(`[AudiobookSearch] Top ${top3.length} results (out of ${filteredResults.length} above threshold):`);
+        console.log(`[AudiobookSearch] Top ${top3.length} results (out of ${rankedResults.length} total):`);
         console.log(`[AudiobookSearch] --------------------------------------------------------`);
         top3.forEach((result, index) => {
           console.log(`[AudiobookSearch] ${index + 1}. "${result.title}"`);
           console.log(`[AudiobookSearch]    Indexer: ${result.indexer}${result.indexerId ? ` (ID: ${result.indexerId})` : ''}`);
           console.log(`[AudiobookSearch]    `);
           console.log(`[AudiobookSearch]    Base Score: ${result.score.toFixed(1)}/100`);
-          console.log(`[AudiobookSearch]    - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/50`);
+          console.log(`[AudiobookSearch]    - Title/Author Match: ${result.breakdown.matchScore.toFixed(1)}/60`);
           console.log(`[AudiobookSearch]    - Format Quality: ${result.breakdown.formatScore.toFixed(1)}/25 (${result.format || 'unknown'})`);
-          console.log(`[AudiobookSearch]    - Seeder Count: ${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders} seeders)`);
-          console.log(`[AudiobookSearch]    - Size Score: ${result.breakdown.sizeScore.toFixed(1)}/10 (${(result.size / (1024 ** 3)).toFixed(2)} GB)`);
+          console.log(`[AudiobookSearch]    - Seeder Count: ${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders !== undefined ? result.seeders + ' seeders' : 'N/A for Usenet'})`);
           console.log(`[AudiobookSearch]    `);
           console.log(`[AudiobookSearch]    Bonus Points: +${result.bonusPoints.toFixed(1)}`);
           if (result.bonusModifiers.length > 0) {
@@ -141,7 +128,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Add rank position to each result
-      const resultsWithRank = filteredResults.map((result, index) => ({
+      const resultsWithRank = rankedResults.map((result, index) => ({
         ...result,
         rank: index + 1,
       }));
@@ -149,9 +136,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         results: resultsWithRank,
-        message: filteredResults.length > 0
-          ? `Found ${filteredResults.length} quality matches`
-          : 'No quality matches found',
+        message: rankedResults.length > 0
+          ? `Found ${rankedResults.length} results`
+          : 'No results found',
       });
     } catch (error) {
       console.error('Failed to search for torrents:', error);

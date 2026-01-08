@@ -28,8 +28,8 @@ const RequestWithTorrentSchema = z.object({
     guid: z.string(),
     title: z.string(),
     size: z.number(),
-    seeders: z.number(),
-    leechers: z.number(),
+    seeders: z.number().optional(), // Optional for NZB/Usenet results
+    leechers: z.number().optional(), // Optional for NZB/Usenet results
     indexer: z.string(),
     downloadUrl: z.string(),
     publishDate: z.string().transform((str) => new Date(str)),

@@ -81,6 +81,7 @@ interface Settings {
     downloadDir: string;
     mediaDir: string;
     metadataTaggingEnabled: boolean;
+    chapterMergingEnabled: boolean;
   };
   ebook: {
     enabled: boolean;
@@ -1969,6 +1970,37 @@ export default function AdminSettings() {
                         Automatically write correct title, author, and narrator metadata to m4b and mp3 files
                         during file organization. This significantly improves Plex matching accuracy for audiobooks
                         with missing or incorrect metadata.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chapter Merging Toggle */}
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-start gap-4">
+                    <input
+                      type="checkbox"
+                      id="chapter-merging-settings"
+                      checked={settings.paths.chapterMergingEnabled}
+                      onChange={(e) => {
+                        setSettings({
+                          ...settings,
+                          paths: { ...settings.paths, chapterMergingEnabled: e.target.checked },
+                        });
+                        setValidated({ ...validated, paths: false });
+                      }}
+                      className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="flex-1">
+                      <label
+                        htmlFor="chapter-merging-settings"
+                        className="block text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+                      >
+                        Auto-merge chapters to M4B
+                      </label>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        Automatically merge multi-file chapter downloads into a single M4B audiobook with chapter
+                        markers. Improves playback experience and library organization.
                       </p>
                     </div>
                   </div>

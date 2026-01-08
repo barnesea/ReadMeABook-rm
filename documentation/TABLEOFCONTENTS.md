@@ -48,7 +48,7 @@
 - **qBittorrent integration (torrents)** → [phase3/qbittorrent.md](phase3/qbittorrent.md)
 - **SABnzbd integration (Usenet/NZB)** → [phase3/sabnzbd.md](phase3/sabnzbd.md)
 - **File organization, seeding** → [phase3/file-organization.md](phase3/file-organization.md)
-- **Chapter merging (PRD, not implemented)** → [features/chapter-merging.md](features/chapter-merging.md)
+- **Chapter merging (auto-merge to M4B)** → [features/chapter-merging.md](features/chapter-merging.md)
 
 ## Background Jobs
 - **Bull queue, processors, retry logic** → [backend/services/jobs.md](backend/services/jobs.md)
@@ -93,7 +93,7 @@
 **"How do I use the unified container?"** → [deployment/unified.md](deployment/unified.md)
 **"OAuth redirects to localhost / PUBLIC_URL not working"** → [backend/services/environment.md](backend/services/environment.md)
 **"What environment variables do I need?"** → [backend/services/environment.md](backend/services/environment.md)
-**"How does chapter merging work?"** → [features/chapter-merging.md](features/chapter-merging.md) (PRD only, not implemented)
+**"How does chapter merging work?"** → [features/chapter-merging.md](features/chapter-merging.md)
 **"How does Audiobookshelf integration work?"** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md) (PRD only, not implemented)
 **"How do I use OIDC/Authentik/Keycloak?"** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md) (PRD only, not implemented)
 **"How does manual user registration work?"** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md) (PRD only, not implemented)

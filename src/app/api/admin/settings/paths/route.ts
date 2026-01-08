@@ -11,7 +11,7 @@ export async function PUT(request: NextRequest) {
   return requireAuth(request, async (req: AuthenticatedRequest) => {
     return requireAdmin(req, async () => {
       try {
-        const { downloadDir, mediaDir, metadataTaggingEnabled } = await request.json();
+        const { downloadDir, mediaDir, metadataTaggingEnabled, chapterMergingEnabled } = await request.json();
 
         if (!downloadDir || !mediaDir) {
           return NextResponse.json(
@@ -50,6 +50,18 @@ export async function PUT(request: NextRequest) {
             value: String(metadataTaggingEnabled ?? true),
             category: 'automation',
             description: 'Automatically tag audio files with correct metadata during file organization',
+          },
+        });
+
+        // Update chapter merging setting
+        await prisma.configuration.upsert({
+          where: { key: 'chapter_merging_enabled' },
+          update: { value: String(chapterMergingEnabled ?? false) },
+          create: {
+            key: 'chapter_merging_enabled',
+            value: String(chapterMergingEnabled ?? false),
+            category: 'automation',
+            description: 'Automatically merge multi-file chapter downloads into single M4B with chapter markers',
           },
         });
 
