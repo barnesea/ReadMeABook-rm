@@ -92,7 +92,7 @@
 **"How do I configure external services?"** → [setup-wizard.md](setup-wizard.md), [settings-pages.md](settings-pages.md)
 **"What's the database schema?"** → [backend/database.md](backend/database.md)
 **"How does authentication work?"** → [backend/services/auth.md](backend/services/auth.md)
-**"How do I change the admin password?"** → [settings-pages.md](settings-pages.md), [backend/services/auth.md](backend/services/auth.md)
+**"How do I change my password?"** → [backend/services/auth.md](backend/services/auth.md) (local users only - accessed via user menu in header)
 **"How do I delete requests?"** → [admin-features/request-deletion.md](admin-features/request-deletion.md)
 **"How do I deploy?"** → [deployment/docker.md](deployment/docker.md) (multi-container), [deployment/unified.md](deployment/unified.md) (all-in-one)
 **"How do I use the unified container?"** → [deployment/unified.md](deployment/unified.md)

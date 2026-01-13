@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
   try {
     const {
       backendMode,
+      audibleRegion,
       admin,
       plex,
       audiobookshelf,
@@ -144,6 +145,13 @@ export async function POST(request: NextRequest) {
       where: { key: 'system.backend_mode' },
       update: { value: backendMode },
       create: { key: 'system.backend_mode', value: backendMode },
+    });
+
+    // Save Audible region (default to 'us' if not provided)
+    await prisma.configuration.upsert({
+      where: { key: 'audible.region' },
+      update: { value: audibleRegion || 'us', category: 'system' },
+      create: { key: 'audible.region', value: audibleRegion || 'us', category: 'system' },
     });
 
     if (backendMode === 'plex') {

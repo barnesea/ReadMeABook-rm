@@ -240,6 +240,7 @@ export class PlexAuthProvider implements IAuthProvider {
       email: user.plexEmail || undefined,
       avatarUrl: user.avatarUrl || undefined,
       isAdmin: user.role === 'admin',
+      authProvider: 'plex',
     };
   }
 

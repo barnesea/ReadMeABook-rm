@@ -6,6 +6,7 @@
 import { prisma } from '@/lib/db';
 import { getEncryptionService } from './encryption.service';
 import { RMABLogger } from '@/lib/utils/logger';
+import { AudibleRegion, DEFAULT_AUDIBLE_REGION } from '@/lib/types/audible';
 
 const logger = RMABLogger.create('Config');
 
@@ -226,6 +227,14 @@ export class ConfigurationService {
    */
   async isAudiobookshelfMode(): Promise<boolean> {
     return (await this.getBackendMode()) === 'audiobookshelf';
+  }
+
+  /**
+   * Get configured Audible region
+   */
+  async getAudibleRegion(): Promise<AudibleRegion> {
+    const region = await this.get('audible.region');
+    return (region as AudibleRegion) || DEFAULT_AUDIBLE_REGION;
   }
 
   /**

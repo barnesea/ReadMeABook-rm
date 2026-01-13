@@ -15,6 +15,7 @@ interface User {
   email?: string;
   role: string;
   avatarUrl?: string;
+  authProvider?: string | null; // 'plex' | 'oidc' | 'local' | null
 }
 
 interface AuthContextType {
@@ -90,6 +91,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(storedToken);
       setUser(JSON.parse(storedUser));
       scheduleTokenRefresh(storedToken);
+
+      // Fetch fresh user data from server to get latest fields (e.g., authProvider)
+      fetch('/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${storedToken}`,
+        },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.user) {
+            // Update user with fresh data from server
+            setUser(data.user);
+            localStorage.setItem('user', JSON.stringify(data.user));
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to fetch fresh user data:', error);
+        });
     }
 
     setIsLoading(false);

@@ -11,6 +11,7 @@ export interface UserInfo {
   avatarUrl?: string;
   role?: string;           // 'admin' | 'user'
   isAdmin?: boolean;       // Deprecated: use role instead
+  authProvider?: string;   // 'plex' | 'oidc' | 'local'
 }
 
 export interface AuthTokens {

@@ -125,6 +125,7 @@ export class LocalAuthProvider implements IAuthProvider {
           plexId: user.plexId,
           username: user.plexUsername,
           role: user.role,
+          authProvider: 'local',
         },
         tokens,
       };
@@ -223,6 +224,7 @@ export class LocalAuthProvider implements IAuthProvider {
           plexId: user.plexId,
           username: user.plexUsername,
           role: user.role,
+          authProvider: 'local',
         },
         tokens,
       };

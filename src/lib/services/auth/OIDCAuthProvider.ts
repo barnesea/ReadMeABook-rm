@@ -455,6 +455,7 @@ export class OIDCAuthProvider implements IAuthProvider {
         email: user.plexEmail || undefined,
         avatarUrl: user.avatarUrl || undefined,
         isAdmin: user.role === 'admin',
+        authProvider: 'oidc',
       },
       isFirstLogin: isFirstUser && shouldTriggerJobs,
     };

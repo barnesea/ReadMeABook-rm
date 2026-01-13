@@ -23,7 +23,7 @@ src/components/
 ## Key Components
 
 **Layout**
-- **Header** - Top nav, search input, user menu
+- **Header** ✅ - Top nav, search input, user menu with "Change Password" option (local users only), logout
 - **Sidebar** - Admin side nav
 - **Footer** - Version, links
 
@@ -46,6 +46,7 @@ src/components/
 - **Select** - Custom styling, search/filter
 - **Modal** ✅ - Dialog overlay with backdrop, sizes (sm/md/lg/xl/full), ESC to close, body scroll lock
 - **ConfirmModal** ✅ - Confirmation dialog with customizable title, message, buttons, loading state, and variant (primary/danger)
+- **ChangePasswordModal** ✅ - Password change form for local users. Three fields (current, new, confirm), real-time validation, success/error states, auto-closes on success. Only accessible to users with `authProvider='local'`
 - **Pagination** ✅ - Traditional page navigation with prev/next buttons, smart ellipsis (shows 1...4 5 6...10)
 - **StickyPagination** ✅ - Minimal floating pill at bottom center with prev/next arrows, quick jump input, section label. Shows/hides based on section visibility (IntersectionObserver). Rounded-full design, backdrop blur, subtle shadow, auto-scroll on page change
 

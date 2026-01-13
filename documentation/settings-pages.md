@@ -6,13 +6,39 @@ Single tabbed interface for admins to view/modify system configuration post-setu
 
 ## Sections
 
-1. **Plex** - URL, token (masked), library ID, filesystem scan trigger toggle
-2. **Audiobookshelf** - URL, API token (masked), library ID, filesystem scan trigger toggle
+1. **Plex** - URL, token (masked), library ID, Audible region, filesystem scan trigger toggle
+2. **Audiobookshelf** - URL, API token (masked), library ID, Audible region, filesystem scan trigger toggle
 3. **Prowlarr** - URL, API key (masked), indexer selection with priority, seeding time, RSS monitoring toggle
 4. **Download Client** - Type, URL, credentials (masked)
 5. **Paths** - Download + media directories
 6. **BookDate** - AI provider, API key (encrypted), model selection, library scope, custom prompt, swipe history
-7. **Account** - Local admin password change (only visible to setup admin)
+
+## Audible Region
+
+**Purpose:** Configure which Audible region to use for metadata and search to ensure accurate ASIN matching with your metadata engine.
+
+**Configuration:**
+- Key: `audible.region` (string, default: 'us')
+- Supported regions: US, Canada, UK, Australia, India
+- UI: Dropdown selector in Library tab (both Plex and Audiobookshelf settings)
+- No validation required (immediate save)
+
+**Why It Matters:**
+- Each Audible region uses different ASINs for the same audiobook
+- Users must match their RMAB region to their Plex/Audiobookshelf metadata engine region
+- Mismatched regions cause poor search results and failed metadata matching
+
+**Help Text:**
+"Select the Audible region that matches your metadata engine (Audnexus/Audible Agent) configuration in [Plex/Audiobookshelf]. This ensures accurate book matching and metadata."
+
+**Implementation:**
+- Affects all Audible API calls (base URL changes per region)
+- Affects all Audnexus API calls (region parameter added)
+- Changes apply immediately on next API call (no restart required)
+- **Automatic refresh**: Changing region automatically triggers `audible_refresh` job to fetch popular/new releases for the new region
+- **Cache management**: ConfigService cache and AudibleService initialization are cleared when region changes
+- **Smart re-initialization**: Service automatically detects region changes and re-initializes before each request
+- See: `documentation/integrations/audible.md` for technical details
 
 ## Filesystem Scan Trigger
 
@@ -72,19 +98,11 @@ Single tabbed interface for admins to view/modify system configuration post-setu
 4. **Save:** Updates user preferences immediately
 5. Accessible to all authenticated users
 
-**Account (local admin only):**
-1. Local admin can change password
-2. Requires: current password, new password (min 8 chars), confirmation
-3. No "Save Changes" button - uses dedicated "Change Password" button
-4. Form clears after successful change
-5. Only visible to users with `isSetupAdmin=true` AND `plexId` starts with `local-`
-
 **Validation state resets when:**
 - Plex: URL or token modified
 - Prowlarr: URL or API key modified (NOT indexer config)
 - Download Client: URL, username, or password modified
 - Paths: Directory paths modified
-- Account: No validation required (password change is immediate)
 
 ## API Endpoints
 
@@ -105,6 +123,11 @@ Single tabbed interface for admins to view/modify system configuration post-setu
 **PUT /api/admin/settings/prowlarr**
 - Updates Prowlarr URL and API key
 - Requires prior successful test if values changed
+
+**PUT /api/admin/settings/audible**
+- Updates Audible region
+- Body: `{ region: string }` (one of: us, ca, uk, au, in)
+- No validation required
 
 **PUT /api/admin/settings/prowlarr/indexers**
 - Updates indexer configuration (enabled, priority, seeding time, RSS)
@@ -132,10 +155,6 @@ Single tabbed interface for admins to view/modify system configuration post-setu
 - DELETE /api/bookdate/swipes - Clear ALL users' swipe history and cached recommendations (admin only)
 - GET /api/bookdate/preferences - Get user's preferences (libraryScope, customPrompt)
 - PUT /api/bookdate/preferences - Update user's preferences (all authenticated users)
-
-**Account Endpoints:**
-- POST /api/admin/settings/change-password - Change local admin password (local admin only)
-- GET /api/auth/is-local-admin - Check if current user is local admin (returns `{isLocalAdmin: boolean}`)
 
 ## Features
 

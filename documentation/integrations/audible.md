@@ -19,6 +19,46 @@ Audiobook metadata from Audnexus API (primary) and Audible.com scraping (fallbac
 - Multiple selector strategies with promotional text filtering
 - Extract JSON-LD structured data when available
 
+## Region Configuration
+
+**Status:** ✅ Implemented
+
+Configurable Audible region for accurate metadata matching across different international Audible stores.
+
+**Supported Regions:**
+- United States (`us`) - `audible.com` (default)
+- Canada (`ca`) - `audible.ca`
+- United Kingdom (`uk`) - `audible.co.uk`
+- Australia (`au`) - `audible.com.au`
+- India (`in`) - `audible.in`
+
+**Why Regions Matter:**
+- Each Audible region uses different ASINs for the same audiobook
+- Metadata engines (Audnexus/Audible Agent) in Plex/Audiobookshelf must match RMAB's region
+- Mismatched regions cause poor search results and failed metadata matching
+
+**Configuration:**
+- Key: `audible.region` (stored in database)
+- Default: `us`
+- Set during: Setup wizard (Backend Selection step) or Admin Settings (Library tab)
+- Help text instructs users to match their metadata engine region
+
+**Implementation:**
+- `AudibleService` loads region from config on initialization
+- Dynamically builds base URL: `AUDIBLE_REGIONS[region].baseUrl`
+- Audnexus API calls include region parameter: `?region={code}`
+- IP redirect prevention: `?ipRedirectOverride=true` on all Audible requests
+- Configuration service helper: `getAudibleRegion()` returns configured region
+- **Auto-detection of region changes**: Service checks config before each request and re-initializes if region changed
+- **Cache clearing**: When region changes, ConfigService cache and AudibleService initialization are cleared
+- **Automatic refresh**: Changing region automatically triggers `audible_refresh` job to fetch new data
+
+**Files:**
+- Types: `src/lib/types/audible.ts`
+- Service: `src/lib/integrations/audible.service.ts`
+- Config: `src/lib/services/config.service.ts`
+- API: `src/app/api/admin/settings/audible/route.ts`
+
 ## Discovery Strategy (Popular/New/Search)
 
 - Parse Audible HTML with Cheerio
@@ -28,10 +68,15 @@ Audiobook metadata from Audnexus API (primary) and Audible.com scraping (fallbac
 
 ## Data Sources
 
-1. **Best Sellers:** `https://www.audible.com/adblbestsellers`
-2. **New Releases:** `https://www.audible.com/newreleases`
-3. **Search:** `https://www.audible.com/search?keywords={query}`
-4. **Detail Page:** `https://www.audible.com/pd/{asin}`
+URLs dynamically built based on configured region:
+
+1. **Best Sellers:** `{baseUrl}/adblbestsellers`
+2. **New Releases:** `{baseUrl}/newreleases`
+3. **Search:** `{baseUrl}/search?keywords={query}&ipRedirectOverride=true`
+4. **Detail Page:** `{baseUrl}/pd/{asin}?ipRedirectOverride=true`
+5. **Audnexus API:** `https://api.audnex.us/books/{asin}?region={code}`
+
+Where `{baseUrl}` is determined by configured region (e.g., `https://www.audible.co.uk` for UK).
 
 ## Metadata Extracted
 

@@ -6,10 +6,13 @@
 'use client';
 
 import { Button } from '@/components/ui/Button';
+import { AudibleRegion } from '@/lib/types/audible';
 
 interface BackendSelectionStepProps {
   value: 'plex' | 'audiobookshelf';
   onChange: (value: 'plex' | 'audiobookshelf') => void;
+  audibleRegion: AudibleRegion;
+  onAudibleRegionChange: (region: AudibleRegion) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -17,6 +20,8 @@ interface BackendSelectionStepProps {
 export function BackendSelectionStep({
   value,
   onChange,
+  audibleRegion,
+  onAudibleRegionChange,
   onNext,
   onBack,
 }: BackendSelectionStepProps) {
@@ -92,6 +97,32 @@ export function BackendSelectionStep({
             </div>
           </div>
         </label>
+      </div>
+
+      {/* Audible Region Selection */}
+      <div className="space-y-2">
+        <label
+          htmlFor="audible-region"
+          className="block text-sm font-medium text-gray-900 dark:text-gray-100"
+        >
+          Audible Region
+        </label>
+        <select
+          id="audible-region"
+          value={audibleRegion}
+          onChange={(e) => onAudibleRegionChange(e.target.value as AudibleRegion)}
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="us">United States</option>
+          <option value="ca">Canada</option>
+          <option value="uk">United Kingdom</option>
+          <option value="au">Australia</option>
+          <option value="in">India</option>
+        </select>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Select the Audible region that matches your metadata engine (Audnexus/Audible Agent)
+          configuration in {value === 'plex' ? 'Plex' : 'Audiobookshelf'}. This ensures accurate book matching and metadata.
+        </p>
       </div>
 
       <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">

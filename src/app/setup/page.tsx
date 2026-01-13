@@ -22,6 +22,7 @@ import { PathsStep } from './steps/PathsStep';
 import { BookDateStep } from './steps/BookDateStep';
 import { ReviewStep } from './steps/ReviewStep';
 import { FinalizeStep } from './steps/FinalizeStep';
+import { AudibleRegion } from '@/lib/types/audible';
 
 interface SelectedIndexer {
   id: number;
@@ -34,6 +35,7 @@ interface SetupState {
 
   // Backend selection
   backendMode: 'plex' | 'audiobookshelf';
+  audibleRegion: AudibleRegion;
 
   // Admin account (for Plex mode and ABS + Manual mode)
   adminUsername: string;
@@ -106,6 +108,7 @@ export default function SetupWizard() {
 
     // Backend selection
     backendMode: 'plex',
+    audibleRegion: 'us',
 
     // Admin account
     adminUsername: 'admin',
@@ -215,6 +218,7 @@ export default function SetupWizard() {
     try {
       const payload: any = {
         backendMode: state.backendMode,
+        audibleRegion: state.audibleRegion,
         prowlarr: {
           url: state.prowlarrUrl,
           api_key: state.prowlarrApiKey,
@@ -363,6 +367,8 @@ export default function SetupWizard() {
         <BackendSelectionStep
           value={state.backendMode}
           onChange={(value) => updateField('backendMode', value)}
+          audibleRegion={state.audibleRegion}
+          onAudibleRegionChange={(region) => updateField('audibleRegion', region)}
           onNext={() => goToStep(currentStepNumber + 1)}
           onBack={() => goToStep(currentStepNumber - 1)}
         />

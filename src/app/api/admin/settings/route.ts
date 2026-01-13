@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     const settings = {
       backendMode: configMap.get('system.backend_mode') || 'plex',
       hasLocalUsers,
+      audibleRegion: configMap.get('audible.region') || 'us',
       plex: {
         url: configMap.get('plex_url') || '',
         token: maskValue('token', configMap.get('plex_token')),

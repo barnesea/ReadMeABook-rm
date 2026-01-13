@@ -54,7 +54,7 @@ Handles authentication and authorization: Multiple auth providers (Plex OAuth, O
 **POST /api/auth/plex/switch-profile** - Switch to selected profile and complete authentication
 **POST /api/auth/refresh** - Get new access token (refresh token in header)
 **POST /api/auth/logout** - Clear client-side token
-**GET /api/auth/me** - Get current user (JWT in header)
+**GET /api/auth/me** - Get current user (JWT in header), includes `authProvider` field ('plex' | 'oidc' | 'local')
 
 ## JWT Structure
 
@@ -110,10 +110,12 @@ Handles authentication and authorization: Multiple auth providers (Plex OAuth, O
 - Identified by: `isSetupAdmin=true` AND `plexId` starts with `local-`
 
 **Password Management:**
-- POST `/api/admin/settings/change-password` - Change local admin password
+- POST `/api/auth/change-password` - Change password for any local user
 - Requires: current password, new password (min 8 chars), confirmation
-- Security: Only accessible to local admin (verified via `requireLocalAdmin` middleware)
+- Security: Only accessible to users with `authProvider='local'` (Plex/OIDC users cannot change passwords)
 - Validates current password before allowing change
+- Properly decrypts stored password hash before bcrypt comparison
+- Available to all local users (setup admin, locally registered users)
 
 ## Plex Home Profile Support
 

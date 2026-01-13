@@ -6,6 +6,8 @@
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
 import { RMABLogger } from '../utils/logger';
+import { getConfigService } from '../services/config.service';
+import { AudibleRegion, AUDIBLE_REGIONS, DEFAULT_AUDIBLE_REGION } from '../types/audible';
 
 // Module-level logger
 const logger = RMABLogger.create('Audible');
@@ -32,25 +34,92 @@ export interface AudibleSearchResult {
 }
 
 export class AudibleService {
-  private client: AxiosInstance;
-  private readonly baseUrl = 'https://www.audible.com';
+  private client!: AxiosInstance;
+  private baseUrl: string = 'https://www.audible.com';
+  private region: AudibleRegion = 'us';
+  private initialized: boolean = false;
 
   constructor() {
-    this.client = axios.create({
-      baseURL: this.baseUrl,
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    });
+    // Client will be created lazily on first use
+  }
+
+  /**
+   * Force re-initialization (used when region config changes)
+   */
+  public forceReinitialize(): void {
+    logger.info('Force re-initializing AudibleService');
+    this.initialized = false;
+  }
+
+  /**
+   * Initialize service with configured region
+   * Lazy initialization allows async config loading
+   * Automatically re-initializes if region has changed
+   */
+  private async initialize(): Promise<void> {
+    // If already initialized, check if region has changed
+    if (this.initialized) {
+      const configService = getConfigService();
+      const currentRegion = await configService.getAudibleRegion();
+
+      // If region changed, force re-initialization
+      if (currentRegion !== this.region) {
+        logger.info(`Region changed from ${this.region} to ${currentRegion}, re-initializing`);
+        this.initialized = false;
+      } else {
+        return; // Region unchanged, use existing initialization
+      }
+    }
+
+    try {
+      const configService = getConfigService();
+      this.region = await configService.getAudibleRegion();
+      this.baseUrl = AUDIBLE_REGIONS[this.region].baseUrl;
+
+      logger.info(`Initializing Audible service with region: ${this.region} (${this.baseUrl})`);
+
+      // Create axios client with region-specific base URL
+      this.client = axios.create({
+        baseURL: this.baseUrl,
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        params: {
+          ipRedirectOverride: 'true', // Prevent IP-based region redirects
+        },
+      });
+
+      this.initialized = true;
+    } catch (error) {
+      logger.error('Failed to initialize AudibleService', { error: error instanceof Error ? error.message : String(error) });
+      // Fallback to default region
+      this.region = DEFAULT_AUDIBLE_REGION;
+      this.baseUrl = AUDIBLE_REGIONS[this.region].baseUrl;
+      this.client = axios.create({
+        baseURL: this.baseUrl,
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        params: {
+          ipRedirectOverride: 'true',
+        },
+      });
+      this.initialized = true;
+    }
   }
 
   /**
    * Get popular audiobooks from best sellers (with pagination support)
    */
   async getPopularAudiobooks(limit: number = 20): Promise<AudibleAudiobook[]> {
+    await this.initialize();
+
     try {
       logger.info(` Fetching popular audiobooks (limit: ${limit})...`);
 
@@ -137,6 +206,8 @@ export class AudibleService {
    * Get new release audiobooks (with pagination support)
    */
   async getNewReleases(limit: number = 20): Promise<AudibleAudiobook[]> {
+    await this.initialize();
+
     try {
       logger.info(` Fetching new releases (limit: ${limit})...`);
 
@@ -222,6 +293,8 @@ export class AudibleService {
    * Search for audiobooks
    */
   async search(query: string, page: number = 1): Promise<AudibleSearchResult> {
+    await this.initialize();
+
     try {
       logger.info(` Searching for "${query}"...`);
 
@@ -316,6 +389,8 @@ export class AudibleService {
    * Fallback: Audible scraping
    */
   async getAudiobookDetails(asin: string): Promise<AudibleAudiobook | null> {
+    await this.initialize();
+
     try {
       logger.info(` Fetching details for ASIN ${asin}...`);
 
@@ -341,9 +416,13 @@ export class AudibleService {
    */
   private async fetchFromAudnexus(asin: string): Promise<AudibleAudiobook | null> {
     try {
-      logger.debug(`Fetching ASIN from Audnexus: ${asin}`);
+      const audnexusRegion = AUDIBLE_REGIONS[this.region].audnexusParam;
+      logger.debug(`Fetching ASIN from Audnexus: ${asin} (region: ${audnexusRegion})`);
 
       const response = await axios.get(`https://api.audnex.us/books/${asin}`, {
+        params: {
+          region: audnexusRegion, // Pass region parameter to Audnexus
+        },
         timeout: 10000,
         headers: {
           'User-Agent': 'ReadMeABook/1.0',
