@@ -115,22 +115,63 @@ export class AudibleService {
   }
 
   /**
+   * Fetch with retry logic and exponential backoff
+   * Retries on network errors and rate limiting (503, 429)
+   */
+  private async fetchWithRetry(
+    url: string,
+    config: any = {},
+    maxRetries: number = 3
+  ): Promise<any> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.client.get(url, config);
+      } catch (error: any) {
+        lastError = error;
+        const status = error.response?.status;
+        const isRetryable = !status || status === 503 || status === 429 || status >= 500;
+
+        // Don't retry on 404, 403, etc.
+        if (!isRetryable) {
+          throw error;
+        }
+
+        // Don't retry on last attempt
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Exponential backoff: 2^attempt * 1000ms (1s, 2s, 4s, 8s...)
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        logger.info(` Request failed (${status || 'network error'}), retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
+
+        await this.delay(backoffMs);
+      }
+    }
+
+    // All retries exhausted
+    throw lastError || new Error('Request failed after retries');
+  }
+
+  /**
    * Get popular audiobooks from best sellers (with pagination support)
    */
   async getPopularAudiobooks(limit: number = 20): Promise<AudibleAudiobook[]> {
     await this.initialize();
 
-    try {
-      logger.info(` Fetching popular audiobooks (limit: ${limit})...`);
+    logger.info(` Fetching popular audiobooks (limit: ${limit})...`);
 
-      const audiobooks: AudibleAudiobook[] = [];
-      let page = 1;
-      const maxPages = Math.ceil(limit / 20); // Audible shows ~20 items per page
+    const audiobooks: AudibleAudiobook[] = [];
+    let page = 1;
+    const maxPages = Math.ceil(limit / 20); // Audible shows ~20 items per page
 
-      while (audiobooks.length < limit && page <= maxPages) {
+    while (audiobooks.length < limit && page <= maxPages) {
+      try {
         logger.info(` Fetching page ${page}/${maxPages}...`);
 
-        const response = await this.client.get('/adblbestsellers', {
+        const response = await this.fetchWithRetry('/adblbestsellers', {
           params: page > 1 ? { page } : {},
         });
         const $ = cheerio.load(response.data);
@@ -192,14 +233,18 @@ export class AudibleService {
         if (page <= maxPages && audiobooks.length < limit) {
           await this.delay(1500);
         }
+      } catch (error) {
+        logger.error(`Failed to fetch page ${page} of popular audiobooks`, {
+          error: error instanceof Error ? error.message : String(error),
+          collectedSoFar: audiobooks.length
+        });
+        // Stop pagination on error, but return what we collected
+        break;
       }
-
-      logger.info(` Found ${audiobooks.length} popular audiobooks across ${page} pages`);
-      return audiobooks;
-    } catch (error) {
-      logger.error('Failed to fetch popular audiobooks', { error: error instanceof Error ? error.message : String(error) });
-      return [];
     }
+
+    logger.info(` Found ${audiobooks.length} popular audiobooks across ${page - 1} pages`);
+    return audiobooks;
   }
 
   /**
@@ -208,17 +253,17 @@ export class AudibleService {
   async getNewReleases(limit: number = 20): Promise<AudibleAudiobook[]> {
     await this.initialize();
 
-    try {
-      logger.info(` Fetching new releases (limit: ${limit})...`);
+    logger.info(` Fetching new releases (limit: ${limit})...`);
 
-      const audiobooks: AudibleAudiobook[] = [];
-      let page = 1;
-      const maxPages = Math.ceil(limit / 20); // Audible shows ~20 items per page
+    const audiobooks: AudibleAudiobook[] = [];
+    let page = 1;
+    const maxPages = Math.ceil(limit / 20); // Audible shows ~20 items per page
 
-      while (audiobooks.length < limit && page <= maxPages) {
+    while (audiobooks.length < limit && page <= maxPages) {
+      try {
         logger.info(` Fetching page ${page}/${maxPages}...`);
 
-        const response = await this.client.get('/newreleases', {
+        const response = await this.fetchWithRetry('/newreleases', {
           params: page > 1 ? { page } : {},
         });
         const $ = cheerio.load(response.data);
@@ -279,14 +324,18 @@ export class AudibleService {
         if (page <= maxPages && audiobooks.length < limit) {
           await this.delay(1500);
         }
+      } catch (error) {
+        logger.error(`Failed to fetch page ${page} of new releases`, {
+          error: error instanceof Error ? error.message : String(error),
+          collectedSoFar: audiobooks.length
+        });
+        // Stop pagination on error, but return what we collected
+        break;
       }
-
-      logger.info(` Found ${audiobooks.length} new releases across ${page} pages`);
-      return audiobooks;
-    } catch (error) {
-      logger.error('Failed to fetch new releases', { error: error instanceof Error ? error.message : String(error) });
-      return [];
     }
+
+    logger.info(` Found ${audiobooks.length} new releases across ${page - 1} pages`);
+    return audiobooks;
   }
 
   /**

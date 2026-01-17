@@ -355,7 +355,10 @@ describe('AudibleService', () => {
 
   it('returns empty popular audiobooks on errors', async () => {
     configServiceMock.getAudibleRegion.mockResolvedValue('us');
-    clientMock.get.mockRejectedValue(new Error('boom'));
+    // Use 404 error which is not retryable
+    const error: any = new Error('Not Found');
+    error.response = { status: 404 };
+    clientMock.get.mockRejectedValue(error);
 
     const service = new AudibleService();
     const results = await service.getPopularAudiobooks(5);
@@ -365,7 +368,10 @@ describe('AudibleService', () => {
 
   it('returns empty new releases on errors', async () => {
     configServiceMock.getAudibleRegion.mockResolvedValue('us');
-    clientMock.get.mockRejectedValue(new Error('boom'));
+    // Use 404 error which is not retryable
+    const error: any = new Error('Not Found');
+    error.response = { status: 404 };
+    clientMock.get.mockRejectedValue(error);
 
     const service = new AudibleService();
     const results = await service.getNewReleases(5);
