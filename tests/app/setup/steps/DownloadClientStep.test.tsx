@@ -122,7 +122,7 @@ describe('DownloadClientStep', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/setup/test-download-client', expect.any(Object));
     });
 
-    expect(screen.getByText('Bad credentials')).toBeInTheDocument();
+    expect(screen.getByText(/Bad credentials/)).toBeInTheDocument();
   });
 
   it('disables test connection when SABnzbd fields are incomplete', async () => {
