@@ -21,6 +21,14 @@ const axiosMock = vi.hoisted(() => ({
 const parseTorrentMock = vi.hoisted(() => vi.fn());
 const configServiceMock = vi.hoisted(() => ({
   getMany: vi.fn(),
+  get: vi.fn(),
+}));
+
+// Mock for DownloadClientManager
+const downloadClientManagerMock = vi.hoisted(() => ({
+  getClientForProtocol: vi.fn(),
+  getAllClients: vi.fn(),
+  hasClientForProtocol: vi.fn(),
 }));
 
 vi.mock('axios', () => ({
@@ -33,7 +41,12 @@ vi.mock('parse-torrent', () => ({
 }));
 
 vi.mock('@/lib/services/config.service', () => ({
-  getConfigService: () => configServiceMock,
+  getConfigService: vi.fn(async () => configServiceMock),
+}));
+
+vi.mock('@/lib/services/download-client-manager.service', () => ({
+  getDownloadClientManager: () => downloadClientManagerMock,
+  invalidateDownloadClientManager: vi.fn(),
 }));
 
 describe('QBittorrentService', () => {
@@ -45,6 +58,10 @@ describe('QBittorrentService', () => {
     axiosMock.post.mockReset();
     parseTorrentMock.mockReset();
     configServiceMock.getMany.mockReset();
+    configServiceMock.get.mockReset();
+    downloadClientManagerMock.getClientForProtocol.mockReset();
+    downloadClientManagerMock.getAllClients.mockReset();
+    downloadClientManagerMock.hasClientForProtocol.mockReset();
     invalidateQBittorrentService();
   });
 
@@ -586,25 +603,26 @@ describe('QBittorrentService', () => {
   });
 
   it('throws when qBittorrent configuration is incomplete', async () => {
-    configServiceMock.getMany.mockResolvedValue({
-      download_client_url: null,
-      download_client_username: null,
-      download_client_password: null,
-      download_dir: null,
-      download_client_disable_ssl_verify: 'false',
-    });
+    // Mock: no qBittorrent client configured
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue(null);
 
-    await expect(getQBittorrentService()).rejects.toThrow('qBittorrent is not fully configured');
+    await expect(getQBittorrentService()).rejects.toThrow('qBittorrent is not configured');
   });
 
   it('returns a cached instance after successful initialization', async () => {
-    configServiceMock.getMany.mockResolvedValue({
-      download_client_url: 'http://qb',
-      download_client_username: 'user',
-      download_client_password: 'pass',
-      download_dir: '/downloads',
-      download_client_disable_ssl_verify: 'false',
+    // Mock: qBittorrent client configured
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'qbittorrent',
+      name: 'qBittorrent',
+      enabled: true,
+      url: 'http://qb',
+      username: 'user',
+      password: 'pass',
+      disableSSLVerify: false,
+      remotePathMappingEnabled: false,
     });
+    configServiceMock.get.mockResolvedValue('/downloads');
 
     const testConnectionSpy = vi.spyOn(QBittorrentService.prototype, 'testConnection').mockResolvedValue(true);
 
@@ -612,19 +630,26 @@ describe('QBittorrentService', () => {
     const second = await getQBittorrentService();
 
     expect(first).toBe(second);
-    expect(configServiceMock.getMany).toHaveBeenCalledTimes(1);
+    // Should only call getClientForProtocol once (cached after first call)
+    expect(downloadClientManagerMock.getClientForProtocol).toHaveBeenCalledTimes(1);
 
     testConnectionSpy.mockRestore();
   });
 
   it('throws when connection test fails during service creation', async () => {
-    configServiceMock.getMany.mockResolvedValue({
-      download_client_url: 'http://qb',
-      download_client_username: 'user',
-      download_client_password: 'pass',
-      download_dir: '/downloads',
-      download_client_disable_ssl_verify: 'false',
+    // Mock: qBittorrent client configured
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'qbittorrent',
+      name: 'qBittorrent',
+      enabled: true,
+      url: 'http://qb',
+      username: 'user',
+      password: 'pass',
+      disableSSLVerify: false,
+      remotePathMappingEnabled: false,
     });
+    configServiceMock.get.mockResolvedValue('/downloads');
 
     const testConnectionSpy = vi.spyOn(QBittorrentService.prototype, 'testConnection').mockResolvedValue(false);
 

@@ -77,14 +77,7 @@ interface SetupState {
   prowlarrUrl: string;
   prowlarrApiKey: string;
   prowlarrIndexers: SelectedIndexer[];
-  downloadClient: 'qbittorrent' | 'sabnzbd';
-  downloadClientUrl: string;
-  downloadClientUsername: string;
-  downloadClientPassword: string;
-  disableSSLVerify: boolean;
-  remotePathMappingEnabled: boolean;
-  remotePath: string;
-  localPath: string;
+  downloadClients: any[]; // Array of download client configs
   downloadDir: string;
   mediaDir: string;
   metadataTaggingEnabled: boolean;
@@ -150,14 +143,7 @@ export default function SetupWizard() {
     prowlarrUrl: '',
     prowlarrApiKey: '',
     prowlarrIndexers: [],
-    downloadClient: 'qbittorrent',
-    downloadClientUrl: '',
-    downloadClientUsername: 'admin',
-    downloadClientPassword: '',
-    disableSSLVerify: false,
-    remotePathMappingEnabled: false,
-    remotePath: '',
-    localPath: '',
+    downloadClients: [], // Empty array - user will add clients in wizard
     downloadDir: '/downloads',
     mediaDir: '/media/audiobooks',
     metadataTaggingEnabled: true,
@@ -224,16 +210,7 @@ export default function SetupWizard() {
           api_key: state.prowlarrApiKey,
           indexers: state.prowlarrIndexers,
         },
-        downloadClient: {
-          type: state.downloadClient,
-          url: state.downloadClientUrl,
-          username: state.downloadClientUsername,
-          password: state.downloadClientPassword,
-          disableSSLVerify: state.disableSSLVerify,
-          remotePathMappingEnabled: state.remotePathMappingEnabled,
-          remotePath: state.remotePath,
-          localPath: state.localPath,
-        },
+        downloadClient: state.downloadClients, // Send array of clients
         paths: {
           download_dir: state.downloadDir,
           media_dir: state.mediaDir,
@@ -517,14 +494,7 @@ export default function SetupWizard() {
     if (state.currentStep === currentStepNumber) {
       return (
         <DownloadClientStep
-          downloadClient={state.downloadClient}
-          downloadClientUrl={state.downloadClientUrl}
-          downloadClientUsername={state.downloadClientUsername}
-          downloadClientPassword={state.downloadClientPassword}
-          disableSSLVerify={state.disableSSLVerify}
-          remotePathMappingEnabled={state.remotePathMappingEnabled}
-          remotePath={state.remotePath}
-          localPath={state.localPath}
+          downloadClients={state.downloadClients}
           onUpdate={updateField}
           onNext={() => goToStep(currentStepNumber + 1)}
           onBack={() => goToStep(currentStepNumber - 1)}

@@ -8,6 +8,8 @@ import { prisma } from '../db';
 import { getQBittorrentService } from '../integrations/qbittorrent.service';
 import { getSABnzbdService } from '../integrations/sabnzbd.service';
 import { getConfigService } from '../services/config.service';
+import { getDownloadClientManager } from '../services/download-client-manager.service';
+import { ProwlarrService } from '../integrations/prowlarr.service';
 import { RMABLogger } from '../utils/logger';
 
 /**
@@ -39,20 +41,28 @@ export async function processDownloadTorrent(payload: DownloadTorrentPayload): P
       },
     });
 
-    // Get configured download client type
+    // Detect protocol from result and route to appropriate client
+    const isUsenet = ProwlarrService.isNZBResult(torrent);
     const config = await getConfigService();
-    const clientType = (await config.get('download_client_type')) || 'qbittorrent';
+    const manager = getDownloadClientManager(config);
+
+    const clientConfig = await manager.getClientForProtocol(isUsenet ? 'usenet' : 'torrent');
+
+    if (!clientConfig) {
+      const protocol = isUsenet ? 'Usenet (SABnzbd)' : 'Torrent (qBittorrent)';
+      throw new Error(`No ${protocol} client configured`);
+    }
 
     let downloadClientId: string;
     let downloadClient: 'qbittorrent' | 'sabnzbd';
 
-    if (clientType === 'sabnzbd') {
+    if (isUsenet) {
       // Route to SABnzbd
       logger.info(`Routing to SABnzbd`);
 
       const sabnzbd = await getSABnzbdService();
       downloadClientId = await sabnzbd.addNZB(torrent.downloadUrl, {
-        category: 'readmeabook',
+        category: clientConfig.category || 'readmeabook',
         priority: 'normal',
       });
       downloadClient = 'sabnzbd';
@@ -115,7 +125,7 @@ export async function processDownloadTorrent(payload: DownloadTorrentPayload): P
 
       const qbt = await getQBittorrentService();
       downloadClientId = await qbt.addTorrent(torrent.downloadUrl, {
-        category: 'readmeabook',
+        category: clientConfig.category || 'readmeabook',
         tags: ['audiobook'],
         sequentialDownload: true,
         paused: false,

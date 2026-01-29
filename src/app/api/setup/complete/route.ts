@@ -80,10 +80,6 @@ export async function POST(request: NextRequest) {
       !prowlarr?.indexers ||
       !Array.isArray(prowlarr.indexers) ||
       prowlarr.indexers.length === 0 ||
-      !downloadClient?.type ||
-      !downloadClient?.url ||
-      !downloadClient?.username ||
-      !downloadClient?.password ||
       !paths?.download_dir ||
       !paths?.media_dir
     ) {
@@ -91,6 +87,39 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'Missing required configuration fields' },
         { status: 400 }
       );
+    }
+
+    // Validate download client(s)
+    if (!downloadClient) {
+      return NextResponse.json(
+        { success: false, error: 'Download client configuration is required' },
+        { status: 400 }
+      );
+    }
+
+    // Support both legacy single client and new multi-client array
+    const clients = Array.isArray(downloadClient) ? downloadClient : [downloadClient];
+    if (clients.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'At least one download client must be configured' },
+        { status: 400 }
+      );
+    }
+
+    // Validate each client has required fields
+    for (const client of clients) {
+      if (!client.url || !client.password) {
+        return NextResponse.json(
+          { success: false, error: 'Download client URL and password/API key are required' },
+          { status: 400 }
+        );
+      }
+      if (client.type === 'qbittorrent' && !client.username) {
+        return NextResponse.json(
+          { success: false, error: 'qBittorrent username is required' },
+          { status: 400 }
+        );
+      }
     }
 
     // Create admin user (for Plex mode or ABS + Manual auth)
@@ -356,50 +385,41 @@ export async function POST(request: NextRequest) {
       create: { key: 'prowlarr_indexers', value: JSON.stringify(prowlarr.indexers) },
     });
 
-    // Download client configuration
-    await prisma.configuration.upsert({
-      where: { key: 'download_client_type' },
-      update: { value: downloadClient.type },
-      create: { key: 'download_client_type', value: downloadClient.type },
-    });
+    // Download clients configuration (multi-client support)
+    // Accept either legacy single client or new clients array
+    let downloadClientsArray: any[];
+
+    if (Array.isArray(downloadClient)) {
+      // New format: array of clients
+      downloadClientsArray = downloadClient;
+    } else if (downloadClient && typeof downloadClient === 'object') {
+      // Legacy format: convert single client to array
+      downloadClientsArray = [{
+        id: `temp-${Date.now()}`,
+        type: downloadClient.type,
+        name: downloadClient.type === 'qbittorrent' ? 'qBittorrent' : 'SABnzbd',
+        enabled: true,
+        url: downloadClient.url,
+        username: downloadClient.username,
+        password: downloadClient.password,
+        disableSSLVerify: downloadClient.disableSSLVerify || false,
+        remotePathMappingEnabled: downloadClient.remotePathMappingEnabled || false,
+        remotePath: downloadClient.remotePath,
+        localPath: downloadClient.localPath,
+        category: 'readmeabook',
+      }];
+    } else {
+      throw new Error('Invalid download client configuration');
+    }
 
     await prisma.configuration.upsert({
-      where: { key: 'download_client_url' },
-      update: { value: downloadClient.url },
-      create: { key: 'download_client_url', value: downloadClient.url },
+      where: { key: 'download_clients' },
+      update: { value: JSON.stringify(downloadClientsArray) },
+      create: { key: 'download_clients', value: JSON.stringify(downloadClientsArray) },
     });
 
-    await prisma.configuration.upsert({
-      where: { key: 'download_client_username' },
-      update: { value: downloadClient.username },
-      create: { key: 'download_client_username', value: downloadClient.username },
-    });
-
-    await prisma.configuration.upsert({
-      where: { key: 'download_client_password' },
-      update: { value: downloadClient.password },
-      create: { key: 'download_client_password', value: downloadClient.password },
-    });
-
-    await prisma.configuration.upsert({
-      where: { key: 'download_client_disable_ssl_verify' },
-      update: { value: downloadClient.disableSSLVerify ? 'true' : 'false' },
-      create: {
-        key: 'download_client_disable_ssl_verify',
-        value: downloadClient.disableSSLVerify ? 'true' : 'false',
-      },
-    });
-
-    // Remote path mapping configuration
-    await prisma.configuration.upsert({
-      where: { key: 'download_client_remote_path_mapping_enabled' },
-      update: { value: downloadClient.remotePathMappingEnabled ? 'true' : 'false' },
-      create: {
-        key: 'download_client_remote_path_mapping_enabled',
-        value: downloadClient.remotePathMappingEnabled ? 'true' : 'false',
-      },
-    });
-
+    // Legacy: Keep old keys for backward compatibility with migration
+    // (Will be cleaned up by migration on first access)
     await prisma.configuration.upsert({
       where: { key: 'download_client_remote_path' },
       update: { value: downloadClient.remotePath || '' },

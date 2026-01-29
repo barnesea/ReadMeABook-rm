@@ -25,6 +25,13 @@ const configMock = vi.hoisted(() => ({
   getMany: vi.fn(),
 }));
 
+// Mock for DownloadClientManager
+const downloadClientManagerMock = vi.hoisted(() => ({
+  getClientForProtocol: vi.fn(),
+  getAllClients: vi.fn(),
+  hasClientForProtocol: vi.fn(),
+}));
+
 vi.mock('axios', () => ({
   default: axiosMock,
   ...axiosMock,
@@ -34,16 +41,27 @@ vi.mock('@/lib/services/config.service', () => ({
   getConfigService: () => configMock,
 }));
 
+vi.mock('@/lib/services/download-client-manager.service', () => ({
+  getDownloadClientManager: () => downloadClientManagerMock,
+  invalidateDownloadClientManager: vi.fn(),
+}));
+
 describe('ProwlarrService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clientMock.get.mockReset();
     axiosMock.get.mockReset();
     configMock.get.mockReset();
+    downloadClientManagerMock.getClientForProtocol.mockReset();
+    downloadClientManagerMock.getAllClients.mockReset();
+    downloadClientManagerMock.hasClientForProtocol.mockReset();
   });
 
   it('filters results for SABnzbd (usenet)', async () => {
-    configMock.get.mockResolvedValue('sabnzbd');
+    // Mock: Only SABnzbd is configured (usenet only)
+    downloadClientManagerMock.hasClientForProtocol.mockImplementation(async (protocol: string) => {
+      return protocol === 'usenet';
+    });
     clientMock.get.mockResolvedValue({
       data: [
         {
@@ -76,7 +94,10 @@ describe('ProwlarrService', () => {
   });
 
   it('throws when search fails', async () => {
-    configMock.get.mockResolvedValue('qbittorrent');
+    // Mock: qBittorrent is configured (torrent only)
+    downloadClientManagerMock.hasClientForProtocol.mockImplementation(async (protocol: string) => {
+      return protocol === 'torrent';
+    });
     clientMock.get.mockRejectedValue(new Error('bad search'));
 
     const service = new ProwlarrService('http://prowlarr', 'key');
@@ -85,7 +106,10 @@ describe('ProwlarrService', () => {
   });
 
   it('filters results for qBittorrent (torrent)', async () => {
-    configMock.get.mockResolvedValue('qbittorrent');
+    // Mock: Only qBittorrent is configured (torrent only)
+    downloadClientManagerMock.hasClientForProtocol.mockImplementation(async (protocol: string) => {
+      return protocol === 'torrent';
+    });
     clientMock.get.mockResolvedValue({
       data: [
         {
@@ -178,7 +202,10 @@ describe('ProwlarrService', () => {
   });
 
   it('applies category, indexer, and seeder filters', async () => {
-    configMock.get.mockResolvedValue('qbittorrent');
+    // Mock: Only qBittorrent is configured (torrent only)
+    downloadClientManagerMock.hasClientForProtocol.mockImplementation(async (protocol: string) => {
+      return protocol === 'torrent';
+    });
     clientMock.get.mockResolvedValue({
       data: [
         {
@@ -223,9 +250,8 @@ describe('ProwlarrService', () => {
   });
 
   it('returns unfiltered results when protocol filtering fails', async () => {
-    configMock.get
-      .mockResolvedValueOnce('qbittorrent')
-      .mockRejectedValueOnce(new Error('config fail'));
+    // Mock: hasClientForProtocol throws an error
+    downloadClientManagerMock.hasClientForProtocol.mockRejectedValue(new Error('config fail'));
 
     clientMock.get.mockResolvedValue({
       data: [

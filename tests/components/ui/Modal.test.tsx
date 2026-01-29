@@ -26,6 +26,6 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
 
     unmount();
-    expect(document.body.style.overflow).toBe('unset');
+    expect(document.body.style.overflow).toBe(''); // Cleared to default
   });
 });

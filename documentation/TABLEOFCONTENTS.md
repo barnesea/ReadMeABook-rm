@@ -47,6 +47,7 @@
 - **Full pipeline overview** → [phase3/README.md](phase3/README.md)
 - **Search via Prowlarr (torrents + NZBs)** → [phase3/prowlarr.md](phase3/prowlarr.md)
 - **Torrent ranking/selection** → [phase3/ranking-algorithm.md](phase3/ranking-algorithm.md)
+- **Multi-download-client support (qBittorrent + SABnzbd)** → [phase3/download-clients.md](phase3/download-clients.md)
 - **qBittorrent integration (torrents)** → [phase3/qbittorrent.md](phase3/qbittorrent.md)
 - **SABnzbd integration (Usenet/NZB)** → [phase3/sabnzbd.md](phase3/sabnzbd.md)
 - **File organization, seeding** → [phase3/file-organization.md](phase3/file-organization.md)
@@ -102,8 +103,10 @@
 
 ## Feature-Specific Lookups
 **"How do I add a new audiobook?"** → [integrations/audible.md](integrations/audible.md) (scraping), [phase3/README.md](phase3/README.md) (automation)
+**"How do I configure multiple download clients?"** → [phase3/download-clients.md](phase3/download-clients.md)
 **"How do torrent downloads work?"** → [phase3/qbittorrent.md](phase3/qbittorrent.md), [backend/services/jobs.md](backend/services/jobs.md)
 **"How do Usenet/NZB downloads work?"** → [phase3/sabnzbd.md](phase3/sabnzbd.md), [backend/services/jobs.md](backend/services/jobs.md)
+**"Can I use both qBittorrent and SABnzbd?"** → [phase3/download-clients.md](phase3/download-clients.md)
 **"How does Plex matching work?"** → [integrations/plex.md](integrations/plex.md)
 **"How does e-book sidecar work?"** → [integrations/ebook-sidecar.md](integrations/ebook-sidecar.md)
 **"How do I enable e-book downloads?"** → [integrations/ebook-sidecar.md](integrations/ebook-sidecar.md), [settings-pages.md](settings-pages.md)

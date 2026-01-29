@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils/cn';
 
 interface ModalProps {
@@ -25,25 +25,33 @@ export function Modal({
   size = 'md',
   showCloseButton = true,
 }: ModalProps) {
-  // Close on ESC key
+  // Use ref to avoid re-running effect when onClose changes
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Stable close handler
+  const handleClose = useCallback(() => {
+    onCloseRef.current();
+  }, []);
+
+  // Close on ESC key and manage body scroll
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
 
-    if (isOpen) {
-      document.addEventListener('keydown', handleEsc);
-      // Prevent body scroll when modal is open
-      document.body.style.overflow = 'hidden';
-    }
+    document.addEventListener('keydown', handleEsc);
+    document.body.style.overflow = 'hidden';
 
     return () => {
       document.removeEventListener('keydown', handleEsc);
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = '';
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, handleClose]);
 
   if (!isOpen) return null;
 
@@ -60,7 +68,7 @@ export function Modal({
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Modal container */}
@@ -80,7 +88,7 @@ export function Modal({
             </h2>
             {showCloseButton && (
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               >
                 <svg

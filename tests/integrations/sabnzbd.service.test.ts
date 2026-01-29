@@ -18,13 +18,25 @@ const configServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
 }));
 
+// Mock for DownloadClientManager
+const downloadClientManagerMock = vi.hoisted(() => ({
+  getClientForProtocol: vi.fn(),
+  getAllClients: vi.fn(),
+  hasClientForProtocol: vi.fn(),
+}));
+
 vi.mock('axios', () => ({
   default: axiosMock,
   ...axiosMock,
 }));
 
 vi.mock('@/lib/services/config.service', () => ({
-  getConfigService: () => configServiceMock,
+  getConfigService: vi.fn(async () => configServiceMock),
+}));
+
+vi.mock('@/lib/services/download-client-manager.service', () => ({
+  getDownloadClientManager: () => downloadClientManagerMock,
+  invalidateDownloadClientManager: vi.fn(),
 }));
 
 describe('SABnzbdService', () => {
@@ -32,6 +44,9 @@ describe('SABnzbdService', () => {
     vi.clearAllMocks();
     clientMock.get.mockReset();
     configServiceMock.get.mockReset();
+    downloadClientManagerMock.getClientForProtocol.mockReset();
+    downloadClientManagerMock.getAllClients.mockReset();
+    downloadClientManagerMock.hasClientForProtocol.mockReset();
     invalidateSABnzbdService();
   });
 
@@ -456,22 +471,19 @@ describe('SABnzbdService', () => {
   });
 
   it('creates a singleton service from config', async () => {
-    configServiceMock.get.mockImplementation(async (key: string) => {
-      switch (key) {
-        case 'download_client_url':
-          return 'http://sab';
-        case 'download_client_password':
-          return 'api-key';
-        case 'sabnzbd_category':
-          return 'books';
-        case 'download_client_disable_ssl_verify':
-          return 'false';
-        case 'download_dir':
-          return '/downloads';
-        default:
-          return null;
-      }
+    // Mock: SABnzbd client configured via DownloadClientManager
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'sabnzbd',
+      name: 'SABnzbd',
+      enabled: true,
+      url: 'http://sab',
+      password: 'api-key', // API key stored in password field
+      disableSSLVerify: false,
+      remotePathMappingEnabled: false,
+      category: 'books',
     });
+    configServiceMock.get.mockResolvedValue('/downloads');
 
     const ensureSpy = vi.spyOn(SABnzbdService.prototype, 'ensureCategory').mockResolvedValue();
 

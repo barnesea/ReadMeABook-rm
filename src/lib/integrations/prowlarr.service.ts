@@ -372,16 +372,20 @@ export class ProwlarrService {
   }
 
   /**
-   * Filter results based on configured download client protocol
-   * If qBittorrent is configured: only return torrent results
-   * If SABnzbd is configured: only return NZB results
+   * Filter results based on configured download client protocols
+   * If both clients configured: return all results
+   * If only one client configured: return only matching protocol results
    */
   private async filterByProtocol(results: TorrentResult[]): Promise<TorrentResult[]> {
     try {
-      // Get configured download client type
+      // Get configured download clients
+      const { getDownloadClientManager } = await import('../services/download-client-manager.service');
       const { getConfigService } = await import('../services/config.service');
       const config = await getConfigService();
-      const clientType = (await config.get('download_client_type')) || 'qbittorrent';
+      const manager = getDownloadClientManager(config);
+
+      const hasTorrentClient = await manager.hasClientForProtocol('torrent');
+      const hasUsenetClient = await manager.hasClientForProtocol('usenet');
 
       // Debug: Log protocol distribution
       const protocolCounts = results.reduce((acc, r) => {
@@ -403,17 +407,29 @@ export class ProwlarrService {
         });
       }
 
-      if (clientType === 'sabnzbd') {
-        // Filter for NZB results only
-        const filtered = results.filter(result => ProwlarrService.isNZBResult(result));
-        logger.info(` Filtered ${results.length} results to ${filtered.length} NZB results for SABnzbd`);
-        return filtered;
-      } else {
-        // Filter for torrent results only (default)
+      // If both clients configured, return all results (best result selected across all protocols)
+      if (hasTorrentClient && hasUsenetClient) {
+        logger.info(` Both torrent and usenet clients configured, returning all ${results.length} results`);
+        return results;
+      }
+
+      // If only torrent client configured, filter for torrent results
+      if (hasTorrentClient) {
         const filtered = results.filter(result => !ProwlarrService.isNZBResult(result));
         logger.info(` Filtered ${results.length} results to ${filtered.length} torrent results for qBittorrent`);
         return filtered;
       }
+
+      // If only usenet client configured, filter for NZB results
+      if (hasUsenetClient) {
+        const filtered = results.filter(result => ProwlarrService.isNZBResult(result));
+        logger.info(` Filtered ${results.length} results to ${filtered.length} NZB results for SABnzbd`);
+        return filtered;
+      }
+
+      // No clients configured - return empty
+      logger.warn('No download clients configured, returning empty results');
+      return [];
     } catch (error) {
       logger.error('Failed to filter by protocol, returning all results', { error: error instanceof Error ? error.message : String(error) });
       return results; // Fallback: return unfiltered if config fails

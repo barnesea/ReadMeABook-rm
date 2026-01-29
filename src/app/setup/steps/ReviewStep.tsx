@@ -26,8 +26,7 @@ interface ReviewStepProps {
 
     // Common config
     prowlarrUrl: string;
-    downloadClient: 'qbittorrent' | 'sabnzbd';
-    downloadClientUrl: string;
+    downloadClients: any[]; // Array of download client configs
     downloadDir: string;
     mediaDir: string;
 
@@ -172,21 +171,35 @@ export function ReviewStep({ config, loading, error, onComplete, onBack }: Revie
         {/* Download Client Configuration */}
         <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
-            Download Client
+            Download Clients
           </h3>
-          <dl className="space-y-2">
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-600 dark:text-gray-400">Type:</dt>
-              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 capitalize">
-                {config.downloadClient}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-600 dark:text-gray-400">Server URL:</dt>
-              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {config.downloadClientUrl}
-              </dd>
-            </div>
+          <dl className="space-y-3">
+            {config.downloadClients && config.downloadClients.length > 0 ? (
+              config.downloadClients.map((client: any, index: number) => (
+                <div key={index} className={index > 0 ? 'pt-3 border-t border-gray-200 dark:border-gray-700' : ''}>
+                  <div className="flex justify-between mb-1">
+                    <dt className="text-sm text-gray-600 dark:text-gray-400">Name:</dt>
+                    <dd className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {client.name}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between mb-1">
+                    <dt className="text-sm text-gray-600 dark:text-gray-400">Type:</dt>
+                    <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 capitalize">
+                      {client.type}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-sm text-gray-600 dark:text-gray-400">URL:</dt>
+                    <dd className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {client.url}
+                    </dd>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-gray-500 dark:text-gray-400">No download clients configured</div>
+            )}
           </dl>
         </div>
 

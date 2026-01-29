@@ -589,27 +589,43 @@ export async function getSABnzbdService(): Promise<SABnzbdService> {
     return sabnzbdServiceInstance;
   }
 
-  // Load configuration from database
+  // Load configuration from download client manager (uses new multi-client config format)
   const { getConfigService } = await import('../services/config.service');
-  const config = await getConfigService();
+  const { getDownloadClientManager } = await import('../services/download-client-manager.service');
+  const configService = await getConfigService();
+  const manager = getDownloadClientManager(configService);
 
-  const url = await config.get('download_client_url');
-  const apiKey = await config.get('download_client_password'); // Reuse password field for API key
-  const category = (await config.get('sabnzbd_category')) || 'readmeabook';
-  const disableSSL = ((await config.get('download_client_disable_ssl_verify')) || 'false') === 'true';
+  logger.info('Loading configuration from download client manager...');
+  const clientConfig = await manager.getClientForProtocol('usenet');
 
-  if (!url) {
-    throw new Error('SABnzbd URL not configured. Please configure download client settings.');
+  if (!clientConfig) {
+    throw new Error('SABnzbd is not configured. Please configure a SABnzbd client in the admin settings.');
   }
 
-  if (!apiKey) {
-    throw new Error('SABnzbd API key not configured. Please configure download client settings.');
+  if (clientConfig.type !== 'sabnzbd') {
+    throw new Error(`Expected SABnzbd client but found ${clientConfig.type}`);
   }
 
-  sabnzbdServiceInstance = new SABnzbdService(url, apiKey, category, disableSSL);
+  logger.info('Config loaded:', {
+    name: clientConfig.name,
+    hasUrl: !!clientConfig.url,
+    hasApiKey: !!clientConfig.password,
+    disableSSLVerify: clientConfig.disableSSLVerify,
+  });
+
+  if (!clientConfig.url || !clientConfig.password) {
+    throw new Error('SABnzbd is not fully configured. Please check your configuration in admin settings.');
+  }
+
+  sabnzbdServiceInstance = new SABnzbdService(
+    clientConfig.url,
+    clientConfig.password, // API key stored in password field
+    clientConfig.category || 'readmeabook',
+    clientConfig.disableSSLVerify
+  );
 
   // Ensure category exists
-  const downloadDir = await config.get('download_dir');
+  const downloadDir = await configService.get('download_dir');
   await sabnzbdServiceInstance.ensureCategory(downloadDir || undefined);
 
   return sabnzbdServiceInstance;

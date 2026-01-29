@@ -997,75 +997,55 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
   // Always recreate if config hasn't been loaded successfully
   if (!qbittorrentService || !configLoaded) {
     try {
-      // Get configuration from database ONLY (no env var fallback)
+      // Get configuration from download client manager (uses new multi-client config format)
       const { getConfigService } = await import('@/lib/services/config.service');
-      const configService = getConfigService();
+      const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
+      const configService = await getConfigService();
+      const manager = getDownloadClientManager(configService);
 
-      logger.info('[QBittorrent] Loading configuration from database...');
-      const config = await configService.getMany([
-        'download_client_url',
-        'download_client_username',
-        'download_client_password',
-        'download_dir',
-        'download_client_disable_ssl_verify',
-        'download_client_remote_path_mapping_enabled',
-        'download_client_remote_path',
-        'download_client_local_path',
-      ]);
+      logger.info('[QBittorrent] Loading configuration from download client manager...');
+      const clientConfig = await manager.getClientForProtocol('torrent');
+
+      if (!clientConfig) {
+        throw new Error('qBittorrent is not configured. Please configure a qBittorrent client in the admin settings.');
+      }
+
+      if (clientConfig.type !== 'qbittorrent') {
+        throw new Error(`Expected qBittorrent client but found ${clientConfig.type}`);
+      }
 
       logger.info('[QBittorrent] Config loaded:', {
-        hasUrl: !!config.download_client_url,
-        hasUsername: !!config.download_client_username,
-        hasPassword: !!config.download_client_password,
-        hasPath: !!config.download_dir,
-        disableSSLVerify: config.download_client_disable_ssl_verify === 'true',
-        pathMappingEnabled: config.download_client_remote_path_mapping_enabled === 'true',
+        name: clientConfig.name,
+        hasUrl: !!clientConfig.url,
+        hasUsername: !!clientConfig.username,
+        hasPassword: !!clientConfig.password,
+        disableSSLVerify: clientConfig.disableSSLVerify,
+        pathMappingEnabled: clientConfig.remotePathMappingEnabled,
       });
 
-      // Validate all required fields are present (no env var fallback)
-      const missingFields: string[] = [];
-
-      if (!config.download_client_url) {
-        missingFields.push('qBittorrent URL');
-      }
-      if (!config.download_client_username) {
-        missingFields.push('qBittorrent username');
-      }
-      if (!config.download_client_password) {
-        missingFields.push('qBittorrent password');
-      }
-      if (!config.download_dir) {
-        missingFields.push('Download path');
+      // Validate required fields
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        throw new Error('qBittorrent is not fully configured. Please check your configuration in admin settings.');
       }
 
-      if (missingFields.length > 0) {
-        const errorMsg = `qBittorrent is not fully configured. Missing: ${missingFields.join(', ')}. Please configure qBittorrent in the admin settings.`;
-        logger.error('Configuration incomplete', { missingFields });
-        throw new Error(errorMsg);
-      }
-
-      // TypeScript type narrowing: at this point we know all values are non-null
-      const url = config.download_client_url as string;
-      const username = config.download_client_username as string;
-      const password = config.download_client_password as string;
-      const savePath = config.download_dir as string;
-      const disableSSLVerify = config.download_client_disable_ssl_verify === 'true';
+      // Get download_dir from main config (not part of client config)
+      const downloadDir = await configService.get('download_dir') || '/downloads';
 
       // Path mapping configuration
       const pathMappingConfig: PathMappingConfig = {
-        enabled: config.download_client_remote_path_mapping_enabled === 'true',
-        remotePath: config.download_client_remote_path || '',
-        localPath: config.download_client_local_path || '',
+        enabled: clientConfig.remotePathMappingEnabled,
+        remotePath: clientConfig.remotePath || '',
+        localPath: clientConfig.localPath || '',
       };
 
       logger.info('[QBittorrent] Creating service instance...');
       qbittorrentService = new QBittorrentService(
-        url,
-        username,
-        password,
-        savePath,
-        'readmeabook',
-        disableSSLVerify,
+        clientConfig.url,
+        clientConfig.username,
+        clientConfig.password,
+        downloadDir,
+        clientConfig.category || 'readmeabook',
+        clientConfig.disableSSLVerify,
         pathMappingConfig
       );
 
