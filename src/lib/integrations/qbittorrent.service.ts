@@ -459,11 +459,15 @@ export class QBittorrentService {
   /**
    * Ensure category exists in qBittorrent with correct save path
    * Checks existing categories first, then creates or updates as needed
+   * Applies reverse path mapping (local → remote) for remote seedbox scenarios
    */
   private async ensureCategory(category: string): Promise<void> {
     if (!this.cookie) {
       await this.login();
     }
+
+    // Apply reverse path mapping (local → remote) to get the path qBittorrent expects
+    const remoteSavePath = PathMapper.reverseTransform(this.defaultSavePath, this.pathMappingConfig);
 
     try {
       // First, get all categories to check if it exists and what save path it has
@@ -476,13 +480,13 @@ export class QBittorrentService {
 
       if (!existingCategory) {
         // Category doesn't exist - create it
-        logger.info(` Creating category "${category}" with save path: ${this.defaultSavePath}`);
+        logger.info(` Creating category "${category}" with save path: ${remoteSavePath}`);
 
         await this.client.post(
           '/torrents/createCategory',
           new URLSearchParams({
             category,
-            savePath: this.defaultSavePath,
+            savePath: remoteSavePath,
           }),
           {
             headers: {
@@ -497,14 +501,14 @@ export class QBittorrentService {
         // Category exists - check if save path needs updating
         const currentSavePath = existingCategory.savePath || existingCategory.save_path;
 
-        if (currentSavePath !== this.defaultSavePath) {
-          logger.info(` Updating category "${category}" save path from "${currentSavePath}" to "${this.defaultSavePath}"`);
+        if (currentSavePath !== remoteSavePath) {
+          logger.info(` Updating category "${category}" save path from "${currentSavePath}" to "${remoteSavePath}"`);
 
           await this.client.post(
             '/torrents/editCategory',
             new URLSearchParams({
               category,
-              savePath: this.defaultSavePath,
+              savePath: remoteSavePath,
             }),
             {
               headers: {
@@ -516,7 +520,7 @@ export class QBittorrentService {
 
           logger.info(` Category "${category}" save path updated successfully`);
         } else {
-          logger.info(` Category "${category}" already has correct save path: ${this.defaultSavePath}`);
+          logger.info(` Category "${category}" already has correct save path: ${remoteSavePath}`);
         }
       }
     } catch (error) {
@@ -527,7 +531,7 @@ export class QBittorrentService {
           status: error.response?.status,
           statusText: error.response?.statusText,
           data: error.response?.data,
-          requestedPath: this.defaultSavePath,
+          requestedPath: remoteSavePath,
         });
       } else {
         logger.error('Failed to ensure category', { error: error instanceof Error ? error.message : String(error) });

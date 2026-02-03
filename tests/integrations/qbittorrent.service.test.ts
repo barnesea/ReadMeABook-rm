@@ -395,6 +395,91 @@ describe('QBittorrentService', () => {
     expect(clientMock.post).not.toHaveBeenCalled();
   });
 
+  it('applies reverse path mapping when creating category', async () => {
+    const service = new QBittorrentService(
+      'http://qb',
+      'user',
+      'pass',
+      '/downloads',
+      'readmeabook',
+      false,
+      { enabled: true, remotePath: 'F:\\Docker\\downloads', localPath: '/downloads' }
+    );
+    (service as any).cookie = 'SID=pathmap';
+    clientMock.get.mockResolvedValue({ data: {} }); // No existing categories
+    clientMock.post.mockResolvedValue({ data: 'Ok.' });
+
+    await (service as any).ensureCategory('readmeabook');
+
+    expect(clientMock.post).toHaveBeenCalledWith(
+      '/torrents/createCategory',
+      expect.any(URLSearchParams),
+      expect.any(Object)
+    );
+
+    // Verify the savePath was reverse transformed (local → remote)
+    const postCall = clientMock.post.mock.calls[0];
+    const params = postCall[1] as URLSearchParams;
+    expect(params.get('savePath')).toBe('F:\\Docker\\downloads');
+  });
+
+  it('applies reverse path mapping when updating category', async () => {
+    const service = new QBittorrentService(
+      'http://qb',
+      'user',
+      'pass',
+      '/downloads',
+      'readmeabook',
+      false,
+      { enabled: true, remotePath: 'F:\\Docker\\downloads', localPath: '/downloads' }
+    );
+    (service as any).cookie = 'SID=pathmap-update';
+    // Category exists with old path
+    clientMock.get.mockResolvedValue({
+      data: {
+        readmeabook: { savePath: 'F:\\OldPath' },
+      },
+    });
+    clientMock.post.mockResolvedValue({ data: 'Ok.' });
+
+    await (service as any).ensureCategory('readmeabook');
+
+    expect(clientMock.post).toHaveBeenCalledWith(
+      '/torrents/editCategory',
+      expect.any(URLSearchParams),
+      expect.any(Object)
+    );
+
+    // Verify the savePath was reverse transformed (local → remote)
+    const postCall = clientMock.post.mock.calls[0];
+    const params = postCall[1] as URLSearchParams;
+    expect(params.get('savePath')).toBe('F:\\Docker\\downloads');
+  });
+
+  it('does not update category when remote path already matches', async () => {
+    const service = new QBittorrentService(
+      'http://qb',
+      'user',
+      'pass',
+      '/downloads',
+      'readmeabook',
+      false,
+      { enabled: true, remotePath: 'F:\\Docker\\downloads', localPath: '/downloads' }
+    );
+    (service as any).cookie = 'SID=pathmap-match';
+    // Category already has the correct remote path
+    clientMock.get.mockResolvedValue({
+      data: {
+        readmeabook: { savePath: 'F:\\Docker\\downloads' },
+      },
+    });
+
+    await (service as any).ensureCategory('readmeabook');
+
+    // Should not call post since path already matches
+    expect(clientMock.post).not.toHaveBeenCalled();
+  });
+
   it('pauses and resumes torrents', async () => {
     const service = new QBittorrentService('http://qb', 'user', 'pass');
     (service as any).cookie = 'SID=pause';
