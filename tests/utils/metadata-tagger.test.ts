@@ -113,4 +113,89 @@ describe('metadata tagger', () => {
     mockExecFailure('not installed');
     await expect(checkFfmpegAvailable()).resolves.toBe(false);
   });
+
+  describe('metadata escaping', () => {
+    it('does NOT escape single quotes (they are literal in double-quoted shell strings)', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      mockExecSuccess('done');
+
+      await tagAudioFileMetadata('/tmp/book.m4b', {
+        title: "It's Not Her",
+        author: "Author's Name",
+      });
+
+      const command = execMock.mock.calls[0][0] as string;
+      // Single quotes should appear as-is, NOT escaped with backslash
+      expect(command).toContain('-metadata title="It\'s Not Her"');
+      expect(command).not.toContain("It\\'s"); // No backslash-escaped single quotes
+      expect(command).toContain('-metadata album_artist="Author\'s Name"');
+    });
+
+    it('escapes double quotes in metadata values', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      mockExecSuccess('done');
+
+      await tagAudioFileMetadata('/tmp/book.m4b', {
+        title: 'Book "Title"',
+        author: 'Author',
+      });
+
+      const command = execMock.mock.calls[0][0] as string;
+      expect(command).toContain('-metadata title="Book \\"Title\\""');
+    });
+
+    it('escapes backticks to prevent command substitution', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      mockExecSuccess('done');
+
+      await tagAudioFileMetadata('/tmp/book.m4b', {
+        title: 'Book `test`',
+        author: 'Author',
+      });
+
+      const command = execMock.mock.calls[0][0] as string;
+      expect(command).toContain('-metadata title="Book \\`test\\`"');
+    });
+
+    it('escapes dollar signs to prevent variable expansion', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      mockExecSuccess('done');
+
+      await tagAudioFileMetadata('/tmp/book.m4b', {
+        title: 'Book $100',
+        author: 'Author',
+      });
+
+      const command = execMock.mock.calls[0][0] as string;
+      expect(command).toContain('-metadata title="Book \\$100"');
+    });
+
+    it('escapes backslashes before other characters', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      mockExecSuccess('done');
+
+      await tagAudioFileMetadata('/tmp/book.m4b', {
+        title: 'Path\\to\\book',
+        author: 'Author',
+      });
+
+      const command = execMock.mock.calls[0][0] as string;
+      expect(command).toContain('-metadata title="Path\\\\to\\\\book"');
+    });
+
+    it('handles complex titles with multiple special characters', async () => {
+      fsMock.access.mockResolvedValue(undefined);
+      mockExecSuccess('done');
+
+      await tagAudioFileMetadata('/tmp/book.m4b', {
+        title: "Don't Say \"Hello\" for $5",
+        author: "O'Brien",
+      });
+
+      const command = execMock.mock.calls[0][0] as string;
+      // Single quotes literal, double quotes escaped, dollar escaped
+      expect(command).toContain('-metadata title="Don\'t Say \\"Hello\\" for \\$5"');
+      expect(command).toContain('-metadata album_artist="O\'Brien"');
+    });
+  });
 });

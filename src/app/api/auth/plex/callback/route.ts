@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPlexService } from '@/lib/integrations/plex.service';
 import { getEncryptionService } from '@/lib/services/encryption.service';
 import { getConfigService } from '@/lib/services/config.service';
+import { getAuthTokenCache } from '@/lib/services/auth-token-cache.service';
 import { generateAccessToken, generateRefreshToken } from '@/lib/utils/jwt';
 import { prisma } from '@/lib/db';
 import { RMABLogger } from '@/lib/utils/logger';
@@ -149,12 +150,19 @@ export async function GET(request: NextRequest) {
     if (homeUsers.length > 1) {
       logger.info('Account has multiple home profiles, redirecting to profile selection');
 
+      // SECURITY: Store the Plex token server-side instead of exposing it to the client
+      // The token is keyed by pinId and will be retrieved during profile selection/switch
+      const tokenCache = getAuthTokenCache();
+      tokenCache.set(pinId, authToken);
+      logger.debug('Plex token cached for profile selection', { pinId });
+
       // Detect if this is a browser request (mobile redirect) vs AJAX (desktop popup polling)
       const accept = request.headers.get('accept') || '';
       const isBrowserRequest = accept.includes('text/html');
 
       if (isBrowserRequest) {
-        // For browser requests (mobile), construct redirect URL with session data
+        // For browser requests (mobile), construct redirect URL
+        // Token is stored server-side, only pinId is passed to client
         const host = request.headers.get('host') || 'localhost:3030';
         const protocol = request.headers.get('x-forwarded-proto') ||
                         (process.env.NODE_ENV === 'production' ? 'https' : 'http');
@@ -162,7 +170,8 @@ export async function GET(request: NextRequest) {
 
         logger.debug('Redirecting to profile selection', { selectProfileUrl });
 
-        // Return HTML page with JavaScript to store token in sessionStorage and redirect
+        // Return HTML page that redirects to profile selection
+        // Note: Token is NOT included - it's stored server-side for security
         const html = `
           <!DOCTYPE html>
           <html>
@@ -172,9 +181,7 @@ export async function GET(request: NextRequest) {
             <body>
               <p>Loading profiles...</p>
               <script>
-                // Store main account token in session storage for profile selection page
-                sessionStorage.setItem('plex_main_token', '${authToken}');
-                // Redirect to profile selection
+                // Redirect to profile selection (token is stored server-side)
                 window.location.href = '${selectProfileUrl}';
               </script>
             </body>
@@ -189,12 +196,12 @@ export async function GET(request: NextRequest) {
         });
       } else {
         // For AJAX requests (desktop popup), return JSON with redirect instruction
+        // Note: Token is NOT included - it's stored server-side for security
         return NextResponse.json({
           success: true,
           authorized: true,
           requiresProfileSelection: true,
           redirectUrl: `/auth/select-profile?pinId=${pinId}`,
-          mainAccountToken: authToken, // Client will store this temporarily
           homeUsers: homeUsers.length,
         });
       }

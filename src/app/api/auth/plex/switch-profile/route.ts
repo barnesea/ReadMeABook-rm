@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlexService } from '@/lib/integrations/plex.service';
 import { getEncryptionService } from '@/lib/services/encryption.service';
+import { getAuthTokenCache } from '@/lib/services/auth-token-cache.service';
 import { generateAccessToken, generateRefreshToken } from '@/lib/utils/jwt';
 import { prisma } from '@/lib/db';
 import { RMABLogger } from '@/lib/utils/logger';
@@ -15,23 +16,41 @@ const logger = RMABLogger.create('API.PlexSwitchProfile');
 /**
  * POST /api/auth/plex/switch-profile
  * Switch to a Plex Home profile and complete authentication
+ *
+ * Authentication: Provide pinId in request body. The Plex token is
+ * retrieved from server-side cache for security.
  */
 export async function POST(request: NextRequest) {
   try {
-    const mainAccountToken = request.headers.get('X-Plex-Token');
+    const body = await request.json();
+    const { userId, pin, pinId, profileInfo } = body;
 
-    if (!mainAccountToken) {
+    // Validate pinId is provided
+    if (!pinId) {
+      logger.warn('Missing pinId in request body');
       return NextResponse.json(
         {
           error: 'Unauthorized',
-          message: 'Missing authentication token',
+          message: 'Missing PIN ID. Please restart the login process.',
         },
         { status: 401 }
       );
     }
 
-    const body = await request.json();
-    const { userId, pin, pinId, profileInfo } = body;
+    // Retrieve the Plex token from server-side cache
+    const tokenCache = getAuthTokenCache();
+    const mainAccountToken = tokenCache.get(pinId);
+
+    if (!mainAccountToken) {
+      logger.warn('Token not found or expired for pinId', { pinId });
+      return NextResponse.json(
+        {
+          error: 'SessionExpired',
+          message: 'Your session has expired. Please restart the login process.',
+        },
+        { status: 401 }
+      );
+    }
 
     if (!userId) {
       return NextResponse.json(
@@ -154,6 +173,10 @@ export async function POST(request: NextRequest) {
     });
 
     const refreshToken = generateRefreshToken(user.id);
+
+    // Clean up the cached Plex token - authentication is complete
+    tokenCache.delete(pinId);
+    logger.debug('Cached Plex token cleaned up after successful auth', { pinId });
 
     // Return tokens and user info
     return NextResponse.json({

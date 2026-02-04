@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
+import { getConfigService } from '@/lib/services/config.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Admin.Settings.Paths');
@@ -83,6 +84,14 @@ export async function PUT(request: NextRequest) {
         });
 
         logger.info('Paths settings updated');
+
+        // Clear config cache for all updated keys so services get fresh values
+        const configService = getConfigService();
+        configService.clearCache('download_dir');
+        configService.clearCache('media_dir');
+        configService.clearCache('audiobook_path_template');
+        configService.clearCache('metadata_tagging_enabled');
+        configService.clearCache('chapter_merging_enabled');
 
         // Invalidate qBittorrent service singleton to force reload of download_dir
         const { invalidateQBittorrentService } = await import('@/lib/integrations/qbittorrent.service');

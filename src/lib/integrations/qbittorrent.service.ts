@@ -1027,8 +1027,8 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
         pathMappingEnabled: clientConfig.remotePathMappingEnabled,
       });
 
-      // Validate required fields
-      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+      // Validate required fields (only URL is required - username/password optional for whitelist users)
+      if (!clientConfig.url) {
         throw new Error('qBittorrent is not fully configured. Please check your configuration in admin settings.');
       }
 
@@ -1045,8 +1045,8 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
       logger.info('[QBittorrent] Creating service instance...');
       qbittorrentService = new QBittorrentService(
         clientConfig.url,
-        clientConfig.username,
-        clientConfig.password,
+        clientConfig.username || '',
+        clientConfig.password || '',
         downloadDir,
         clientConfig.category || 'readmeabook',
         clientConfig.disableSSLVerify,

@@ -173,10 +173,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (data.success && data.authorized) {
           // Check if profile selection is required (Plex Home accounts)
           if (data.requiresProfileSelection) {
-            // Store main account token temporarily for profile selection
-            sessionStorage.setItem('plex_main_token', data.mainAccountToken);
-
             // Redirect to profile selection page
+            // Note: Plex token is stored server-side for security, not in sessionStorage
             window.location.href = data.redirectUrl;
             return;
           }

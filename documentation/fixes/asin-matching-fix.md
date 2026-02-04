@@ -322,7 +322,7 @@ Plex (After Fix):
 ## Related Documentation
 
 - [Database Schema](../backend/database.md) - Updated with Plex_Library table
-- [Audiobookshelf Integration](../features/audiobookshelf-integration.md) - Full backend integration docs
+- [File Hash Matching](file-hash-matching.md) - ASIN matching via file hash for ABS
 - [Plex Integration](../integrations/plex.md) - Plex-specific matching details
 
 ## Future Enhancements

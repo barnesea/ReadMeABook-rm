@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { getPlexService } from '@/lib/integrations/plex.service';
+import { getEncryptionService } from '@/lib/services/encryption.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.AdminPlexSettings');
@@ -33,10 +34,12 @@ export async function PUT(request: NextRequest) {
 
     // Only update token if it's not the masked value
     if (!token.startsWith('••••')) {
+      const encryptionService = getEncryptionService();
+      const encryptedToken = encryptionService.encrypt(token);
       await prisma.configuration.upsert({
         where: { key: 'plex_token' },
-        update: { value: token },
-        create: { key: 'plex_token', value: token },
+        update: { value: encryptedToken, encrypted: true },
+        create: { key: 'plex_token', value: encryptedToken, encrypted: true },
       });
     }
 
@@ -59,10 +62,10 @@ export async function PUT(request: NextRequest) {
       const plexService = getPlexService();
       const actualToken = token.startsWith('••••') ? null : token;
 
-      // Get token from DB if it was masked
-      const tokenToUse = actualToken || (await prisma.configuration.findUnique({
-        where: { key: 'plex_token' },
-      }))?.value;
+      // Get token from DB if it was masked (decrypted via ConfigService)
+      const { getConfigService } = await import('@/lib/services/config.service');
+      const configService = getConfigService();
+      const tokenToUse = actualToken || await configService.get('plex_token');
 
       if (tokenToUse) {
         const serverInfo = await plexService.testConnection(url, tokenToUse);

@@ -38,42 +38,45 @@ function SelectProfileContent() {
   const [pinError, setPinError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Get token from session storage (set by OAuth callback)
-  const mainAccountToken = typeof window !== 'undefined' ? sessionStorage.getItem('plex_main_token') : null;
+  // Get pinId from URL - the Plex token is stored server-side for security
   const pinId = searchParams.get('pinId');
 
   useEffect(() => {
-    if (!mainAccountToken || !pinId) {
+    if (!pinId) {
       setError('Invalid session. Please try logging in again.');
       setIsLoading(false);
       return;
     }
 
-    // Fetch home users
+    // Fetch home users using pinId (token is looked up server-side)
     const fetchProfiles = async () => {
       try {
         const response = await fetch('/api/auth/plex/home-users', {
           headers: {
-            'X-Plex-Token': mainAccountToken,
+            'X-Plex-Pin-Id': pinId,
           },
         });
 
         if (!response.ok) {
-          throw new Error('Failed to fetch profiles');
+          const errorData = await response.json().catch(() => ({}));
+          if (response.status === 401) {
+            throw new Error(errorData.message || 'Session expired. Please try logging in again.');
+          }
+          throw new Error(errorData.message || 'Failed to fetch profiles');
         }
 
         const data = await response.json();
         setProfiles(data.users || []);
         setIsLoading(false);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to fetch profiles:', err);
-        setError('Failed to load profiles. Please try again.');
+        setError(err.message || 'Failed to load profiles. Please try again.');
         setIsLoading(false);
       }
     };
 
     fetchProfiles();
-  }, [mainAccountToken, pinId]);
+  }, [pinId]);
 
   const handleProfileSelect = async (profile: PlexHomeUser) => {
     setSelectedProfile(profile.id);
@@ -97,7 +100,10 @@ function SelectProfileContent() {
   };
 
   const completeProfileSelection = async (profileId: string, profilePin?: string) => {
-    if (!mainAccountToken) return;
+    if (!pinId) {
+      setError('Session expired. Please try logging in again.');
+      return;
+    }
 
     setIsSubmitting(true);
     setPinError(null);
@@ -111,11 +117,11 @@ function SelectProfileContent() {
     }
 
     try {
+      // Switch profile using pinId - token is looked up server-side for security
       const response = await fetch('/api/auth/plex/switch-profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Plex-Token': mainAccountToken,
         },
         body: JSON.stringify({
           userId: profileId,
@@ -134,8 +140,15 @@ function SelectProfileContent() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          setPinError('Invalid PIN. Please try again.');
-          setPin('');
+          // Check if it's a PIN error or session expiry
+          if (data.error === 'InvalidPIN') {
+            setPinError('Invalid PIN. Please try again.');
+            setPin('');
+            setIsSubmitting(false);
+            return;
+          }
+          // Session expired
+          setError(data.message || 'Session expired. Please try logging in again.');
           setIsSubmitting(false);
           return;
         }
@@ -149,9 +162,6 @@ function SelectProfileContent() {
 
       // Update auth context
       setAuthData(data.user, data.accessToken);
-
-      // Clear session storage
-      sessionStorage.removeItem('plex_main_token');
 
       // Redirect to home
       router.push('/');

@@ -194,6 +194,6 @@ environment:
 ## Related
 
 - OAuth Implementation: documentation/backend/services/auth.md
-- OIDC Configuration: documentation/features/audiobookshelf-integration.md
+- OIDC Configuration: documentation/backend/services/auth.md
 - Deployment: documentation/deployment/unified.md
 - Setup Middleware: documentation/backend/middleware.md

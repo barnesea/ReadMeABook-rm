@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSchedulerService } from '@/lib/services/scheduler.service';
+import { runCredentialMigration } from '@/lib/services/credential-migration.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Init');
@@ -17,6 +18,9 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     logger.info('Initializing application services...');
+
+    // Run credential migration (encrypts any plaintext credentials)
+    await runCredentialMigration();
 
     // Initialize scheduler service
     const schedulerService = getSchedulerService();

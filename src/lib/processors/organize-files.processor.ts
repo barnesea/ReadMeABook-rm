@@ -11,6 +11,7 @@ import { getLibraryService } from '../services/library';
 import { getConfigService } from '../services/config.service';
 import { generateFilesHash } from '../utils/files-hash';
 import { fixEpubForKindle, cleanupFixedEpub } from '../utils/epub-fixer';
+import { removeEmptyParentDirectories } from '../utils/cleanup-helpers';
 
 /**
  * Process organize files job
@@ -295,6 +296,18 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
                   // Remove single file
                   await fs.unlink(downloadPath);
                   logger.info(`Removed file: ${downloadPath}`);
+                }
+
+                // Clean up empty parent directories (e.g., empty category folders)
+                // Get download_dir as the boundary - never delete above this
+                const downloadDir = await configService.get('download_dir') || '/downloads';
+                const cleanupResult = await removeEmptyParentDirectories(downloadPath, {
+                  boundaryPath: downloadDir,
+                  logContext: jobId ? { jobId, context: 'CleanupParents' } : undefined,
+                });
+
+                if (cleanupResult.removedDirectories.length > 0) {
+                  logger.info(`Cleaned up ${cleanupResult.removedDirectories.length} empty parent directories`);
                 }
               } catch (fsError) {
                 // File/directory might already be deleted or not exist
@@ -775,6 +788,18 @@ async function processEbookOrganization(
                 // Remove single file
                 await fs.unlink(downloadPath);
                 logger.info(`Removed file: ${downloadPath}`);
+              }
+
+              // Clean up empty parent directories (e.g., empty category folders)
+              // Get download_dir as the boundary - never delete above this
+              const downloadDir = await configService.get('download_dir') || '/downloads';
+              const cleanupResult = await removeEmptyParentDirectories(downloadPath, {
+                boundaryPath: downloadDir,
+                logContext: jobId ? { jobId, context: 'CleanupParents' } : undefined,
+              });
+
+              if (cleanupResult.removedDirectories.length > 0) {
+                logger.info(`Cleaned up ${cleanupResult.removedDirectories.length} empty parent directories`);
               }
             } catch (fsError) {
               // File/directory might already be deleted or not exist

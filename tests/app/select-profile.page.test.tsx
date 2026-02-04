@@ -45,7 +45,7 @@ describe('SelectProfilePage', () => {
   });
 
   it('selects an unprotected profile and stores auth data', async () => {
-    sessionStorage.setItem('plex_main_token', 'main-token');
+    // Token is now stored server-side, only pinId needed in URL
     setMockSearchParams('pinId=123');
 
     const setAuthDataMock = vi.fn();
@@ -71,6 +71,9 @@ describe('SelectProfilePage', () => {
     const fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.url;
       if (url === '/api/auth/plex/home-users') {
+        // Verify pinId header is sent instead of token
+        const headers = (init as RequestInit)?.headers as Record<string, string>;
+        expect(headers?.['X-Plex-Pin-Id']).toBe('123');
         return makeJsonResponse({ users: profiles });
       }
       if (url === '/api/auth/plex/switch-profile') {
@@ -107,7 +110,7 @@ describe('SelectProfilePage', () => {
   });
 
   it('prompts for a PIN and handles invalid submissions', async () => {
-    sessionStorage.setItem('plex_main_token', 'main-token');
+    // Token is now stored server-side, only pinId needed in URL
     setMockSearchParams('pinId=555');
 
     const setAuthDataMock = vi.fn();
@@ -136,7 +139,8 @@ describe('SelectProfilePage', () => {
         return makeJsonResponse({ users: profiles });
       }
       if (url === '/api/auth/plex/switch-profile') {
-        return makeJsonResponse({ message: 'Invalid PIN' }, false, 401);
+        // Return InvalidPIN error type to trigger PIN error message
+        return makeJsonResponse({ error: 'InvalidPIN', message: 'Invalid PIN' }, false, 401);
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });

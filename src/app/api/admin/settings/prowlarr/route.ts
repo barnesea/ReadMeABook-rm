@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
+import { getEncryptionService } from '@/lib/services/encryption.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Admin.Settings.Prowlarr');
@@ -32,10 +33,12 @@ export async function PUT(request: NextRequest) {
 
         // Only update API key if it's not the masked value
         if (!apiKey.startsWith('••••')) {
+          const encryptionService = getEncryptionService();
+          const encryptedApiKey = encryptionService.encrypt(apiKey);
           await prisma.configuration.upsert({
             where: { key: 'prowlarr_api_key' },
-            update: { value: apiKey },
-            create: { key: 'prowlarr_api_key', value: apiKey },
+            update: { value: encryptedApiKey, encrypted: true },
+            create: { key: 'prowlarr_api_key', value: encryptedApiKey, encrypted: true },
           });
         }
 

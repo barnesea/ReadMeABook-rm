@@ -5,7 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
-import { prisma } from '@/lib/db';
+import { getConfigService } from '@/lib/services/config.service';
+import { getDownloadClientManager } from '@/lib/services/download-client-manager.service';
 import { QBittorrentService } from '@/lib/integrations/qbittorrent.service';
 import { SABnzbdService } from '@/lib/integrations/sabnzbd.service';
 import { RMABLogger } from '@/lib/utils/logger';
@@ -43,21 +44,24 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // If password is masked, fetch the actual value from database
+        // If password is masked, fetch the actual value from download client manager (decrypted)
         let actualPassword = password;
-        if (password && password.startsWith('••••')) {
-          const storedPassword = await prisma.configuration.findUnique({
-            where: { key: 'download_client_password' },
-          });
+        if (password && (password.startsWith('••••') || password === '********')) {
+          const configService = getConfigService();
+          const manager = getDownloadClientManager(configService);
+          const clients = await manager.getAllClients();
 
-          if (!storedPassword?.value) {
+          // Find the first client of matching type to get its password
+          const matchingClient = clients.find(c => c.type === type);
+
+          if (!matchingClient?.password) {
             return NextResponse.json(
               { success: false, error: 'No stored password/API key found. Please re-enter it.' },
               { status: 400 }
             );
           }
 
-          actualPassword = storedPassword.value;
+          actualPassword = matchingClient.password;
         }
 
         // Validate required fields per client type and test connection

@@ -165,16 +165,22 @@ export async function tagMultipleFiles(
 }
 
 /**
- * Escape metadata values for shell command
- * Removes quotes and special characters that could break the command
+ * Escape metadata values for shell command (double-quoted context)
+ *
+ * In double-quoted shell strings, only these characters need escaping:
+ * - Backslashes (must be first to avoid double-escaping)
+ * - Double quotes
+ * - Backticks (command substitution)
+ * - Dollar signs (variable expansion)
+ *
+ * Single quotes do NOT need escaping inside double quotes - they are literal.
  */
 function escapeMetadata(value: string): string {
   return value
+    .replace(/\\/g, '\\\\') // Escape backslashes FIRST (before other escapes add backslashes)
     .replace(/"/g, '\\"') // Escape double quotes
-    .replace(/'/g, "\\'") // Escape single quotes
-    .replace(/`/g, '\\`') // Escape backticks
-    .replace(/\$/g, '\\$') // Escape dollar signs
-    .replace(/\\/g, '\\\\'); // Escape backslashes
+    .replace(/`/g, '\\`') // Escape backticks (prevents command substitution)
+    .replace(/\$/g, '\\$'); // Escape dollar signs (prevents variable expansion)
 }
 
 /**

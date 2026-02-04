@@ -30,6 +30,12 @@ const fsMock = vi.hoisted(() => ({
   access: vi.fn(),
   constants: { R_OK: 4 },
 }));
+const configServiceMock = vi.hoisted(() => ({
+  get: vi.fn(),
+}));
+const downloadClientManagerMock = vi.hoisted(() => ({
+  getAllClients: vi.fn(),
+}));
 
 vi.mock('@/lib/db', () => ({
   prisma: prismaMock,
@@ -71,6 +77,14 @@ vi.mock('@/lib/services/ebook-scraper', () => ({
 vi.mock('fs/promises', () => ({
   default: fsMock,
   ...fsMock,
+}));
+
+vi.mock('@/lib/services/config.service', () => ({
+  getConfigService: () => configServiceMock,
+}));
+
+vi.mock('@/lib/services/download-client-manager.service', () => ({
+  getDownloadClientManager: () => downloadClientManagerMock,
 }));
 
 describe('Admin settings test routes', () => {
@@ -211,7 +225,10 @@ describe('Admin settings test routes', () => {
   });
 
   it('uses stored password when masked password is provided', async () => {
-    prismaMock.configuration.findUnique.mockResolvedValueOnce({ value: 'stored-pass' });
+    // Mock download client manager to return the stored password
+    downloadClientManagerMock.getAllClients.mockResolvedValueOnce([
+      { type: 'qbittorrent', password: 'stored-pass' },
+    ]);
     qbtMock.testConnectionWithCredentials.mockResolvedValueOnce('4.1.0');
     const request = {
       json: vi.fn().mockResolvedValue({
@@ -236,7 +253,8 @@ describe('Admin settings test routes', () => {
   });
 
   it('returns error when masked password is missing in storage', async () => {
-    prismaMock.configuration.findUnique.mockResolvedValueOnce(null);
+    // Mock download client manager to return no matching client
+    downloadClientManagerMock.getAllClients.mockResolvedValueOnce([]);
     const request = {
       json: vi.fn().mockResolvedValue({
         type: 'qbittorrent',

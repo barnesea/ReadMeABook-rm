@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
-import { prisma } from '@/lib/db';
+import { getConfigService } from '@/lib/services/config.service';
 import { getPlexService } from '@/lib/integrations/plex.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
@@ -24,21 +24,20 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // If token is masked, fetch the actual value from database
+        // If token is masked, fetch the actual value from database (decrypted)
         let actualToken = token;
         if (token.startsWith('••••')) {
-          const storedToken = await prisma.configuration.findUnique({
-            where: { key: 'plex_token' },
-          });
+          const configService = getConfigService();
+          const storedToken = await configService.get('plex_token');
 
-          if (!storedToken?.value) {
+          if (!storedToken) {
             return NextResponse.json(
               { success: false, error: 'No stored token found. Please re-enter your Plex token.' },
               { status: 400 }
             );
           }
 
-          actualToken = storedToken.value;
+          actualToken = storedToken;
         }
 
         const plexService = getPlexService();

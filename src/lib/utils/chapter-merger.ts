@@ -676,9 +676,14 @@ export async function mergeChapters(
     args.push('-avoid_negative_ts', 'make_zero'); // Handle negative timestamps
     args.push('-max_muxing_queue_size', '9999'); // Prevent buffer overflow on long files
 
-    // Add book metadata
+    // Add book metadata (escape for double-quoted shell context)
+    // Single quotes do NOT need escaping inside double quotes - they are literal
     const escapeMetadata = (val: string): string =>
-      val.replace(/"/g, '\\"').replace(/'/g, "\\'");
+      val
+        .replace(/\\/g, '\\\\') // Backslashes first
+        .replace(/"/g, '\\"') // Double quotes
+        .replace(/`/g, '\\`') // Backticks
+        .replace(/\$/g, '\\$'); // Dollar signs
 
     args.push('-metadata', `title="${escapeMetadata(options.title)}"`);
     args.push('-metadata', `album="${escapeMetadata(options.title)}"`);

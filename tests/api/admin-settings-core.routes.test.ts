@@ -77,6 +77,13 @@ vi.mock('@/lib/services/download-client-manager.service', () => ({
   invalidateDownloadClientManager: invalidateDownloadClientManagerMock,
 }));
 
+vi.mock('@/lib/services/encryption.service', () => ({
+  getEncryptionService: () => ({
+    encrypt: (value: string) => `enc-${value}`,
+    decrypt: (value: string) => value.replace('enc-', ''),
+  }),
+}));
+
 describe('Admin settings core routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();

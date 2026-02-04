@@ -25,13 +25,12 @@
 - **OAuth, library scanning, fuzzy matching** → [integrations/plex.md](integrations/plex.md)
 - **Availability status, plexGuid linking** → [integrations/plex.md](integrations/plex.md)
 
-## Audiobookshelf Integration (PRD - Not Implemented)
-- **Full PRD, architecture, implementation phases** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md)
-- **Step-by-step implementation guide** → [features/audiobookshelf-implementation-guide.md](features/audiobookshelf-implementation-guide.md)
-- **OIDC authentication (Authentik, Keycloak)** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md)
-- **Manual user registration** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md)
-- **Backend mode selection (Plex vs ABS)** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md)
-- **Library service abstraction** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md)
+## Audiobookshelf Integration
+- **ABS API client, library scanning** → `src/lib/services/audiobookshelf/api.ts`
+- **ABS library service** → `src/lib/services/library/AudiobookshelfLibraryService.ts`
+- **Backend mode selection (Plex vs ABS)** → [backend/services/config.md](backend/services/config.md)
+- **File hash matching for accurate ASIN** → [fixes/file-hash-matching.md](fixes/file-hash-matching.md)
+- **OIDC authentication** → [backend/services/auth.md](backend/services/auth.md)
 
 ## Audible Integration
 - **Web scraping (popular, new releases)** → [integrations/audible.md](integrations/audible.md)
@@ -138,10 +137,9 @@
 **"How does chapter merging work?"** → [features/chapter-merging.md](features/chapter-merging.md)
 **"How does logging work?"** → [backend/services/logging.md](backend/services/logging.md)
 **"How do BookDate card stack animations work?"** → [features/bookdate-animations.md](features/bookdate-animations.md)
-**"How does Audiobookshelf integration work?"** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md) (PRD only, not implemented)
-**"How do I use OIDC/Authentik/Keycloak?"** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md) (PRD only, not implemented)
-**"How does manual user registration work?"** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md) (PRD only, not implemented)
-**"How do I switch from Plex to Audiobookshelf?"** → [features/audiobookshelf-integration.md](features/audiobookshelf-integration.md) (PRD only, not implemented)
+**"How does Audiobookshelf integration work?"** → `src/lib/services/audiobookshelf/api.ts`, `src/lib/services/library/AudiobookshelfLibraryService.ts`
+**"How do I use OIDC/Authentik/Keycloak?"** → [backend/services/auth.md](backend/services/auth.md)
+**"How do I switch from Plex to Audiobookshelf?"** → Setup wizard (re-run setup with different backend mode)
 **"How does library thumbnail caching work?"** → [features/library-thumbnail-cache.md](features/library-thumbnail-cache.md)
 **"Why do BookDate library books show placeholders?"** → [features/library-thumbnail-cache.md](features/library-thumbnail-cache.md)
 **"How does file hash matching work?"** → [fixes/file-hash-matching.md](fixes/file-hash-matching.md)

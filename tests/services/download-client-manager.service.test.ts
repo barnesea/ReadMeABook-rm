@@ -21,6 +21,19 @@ vi.mock('@/lib/services/config.service', () => ({
   getConfigService: () => configMock,
 }));
 
+// Mock credential migration service - passwords in tests are plaintext
+vi.mock('@/lib/services/credential-migration.service', () => ({
+  isEncryptedFormat: () => false, // Test passwords are plaintext
+}));
+
+// Mock encryption service
+vi.mock('@/lib/services/encryption.service', () => ({
+  getEncryptionService: () => ({
+    encrypt: (value: string) => `enc-${value}`,
+    decrypt: (value: string) => value.replace('enc-', ''),
+  }),
+}));
+
 // Mock qBittorrent and SABnzbd services - use vi.hoisted to ensure they're available at mock time
 const { qbtServiceMock, sabServiceMock } = vi.hoisted(() => ({
   qbtServiceMock: {

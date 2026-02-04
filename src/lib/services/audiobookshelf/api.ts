@@ -1,6 +1,10 @@
 /**
  * Component: Audiobookshelf API Client
- * Documentation: documentation/features/audiobookshelf-integration.md
+ *
+ * Provides API methods for interacting with Audiobookshelf:
+ * - Library scanning and item fetching
+ * - Metadata matching (with ASIN for accurate Audible lookup)
+ * - Item management
  */
 
 import { getConfigService } from '../config.service';

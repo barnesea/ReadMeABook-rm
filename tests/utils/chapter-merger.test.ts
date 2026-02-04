@@ -620,4 +620,120 @@ describe('chapter merger', () => {
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Merged file not created/i);
   });
+
+  describe('metadata escaping', () => {
+    it('does NOT escape single quotes in metadata (they are literal in double-quoted shell strings)', async () => {
+      const outputPath = '/tmp/output.m4b';
+      const chapters = [
+        { path: '/tmp/one.m4a', filename: 'one.m4a', duration: 60000, bitrate: 128, chapterTitle: 'One' },
+      ];
+
+      fsMock.access.mockResolvedValue(undefined);
+      fsMock.stat.mockImplementation(async (filePath: string) => {
+        if (filePath === outputPath) {
+          return { size: 2 * 1024 * 1024 };
+        }
+        return { size: 500 * 1024 };
+      });
+      fsMock.mkdir.mockResolvedValue(undefined);
+      fsMock.writeFile.mockResolvedValue(undefined);
+      fsMock.unlink.mockResolvedValue(undefined);
+
+      mockExecImplementation((command) => {
+        if (command.startsWith('ffprobe')) {
+          return {
+            stdout: JSON.stringify({
+              format: { duration: '60', bit_rate: '128000', tags: {} },
+            }),
+          };
+        }
+        if (command.startsWith('ffmpeg -v error')) {
+          return { stdout: '' };
+        }
+        return { stdout: '' };
+      });
+
+      spawnMock.mockReturnValue(createSpawnProcess(0));
+
+      await mergeChapters(chapters, {
+        title: "It's Not Her",
+        author: "O'Brien",
+        narrator: "Jane's Voice",
+        outputPath,
+      });
+
+      // Get the args passed to spawn
+      const spawnCall = spawnMock.mock.calls[0];
+      const args = spawnCall[1] as string[];
+
+      // Find the title metadata arg (format after parsing: title="It's Not Her)
+      const titleArg = args.find((arg: string) => arg.startsWith('title='));
+      const albumArtistArg = args.find((arg: string) => arg.startsWith('album_artist='));
+      const composerArg = args.find((arg: string) => arg.startsWith('composer='));
+
+      // Single quotes should appear as-is ('s), NOT escaped with backslash (\'s)
+      // The args contain the value with opening quote: title="It's Not Her
+      expect(titleArg).toContain("It's Not Her");
+      expect(titleArg).not.toContain("\\'"); // No escaped single quotes
+      expect(albumArtistArg).toContain("O'Brien");
+      expect(albumArtistArg).not.toContain("\\'");
+      expect(composerArg).toContain("Jane's Voice");
+      expect(composerArg).not.toContain("\\'");
+
+      // Verify no backslash-escaped single quotes anywhere in args
+      const allArgsJoined = args.join(' ');
+      expect(allArgsJoined).not.toContain("\\'");
+    });
+
+    it('properly escapes double quotes and special shell characters', async () => {
+      const outputPath = '/tmp/output.m4b';
+      const chapters = [
+        { path: '/tmp/one.m4a', filename: 'one.m4a', duration: 60000, bitrate: 128, chapterTitle: 'One' },
+      ];
+
+      fsMock.access.mockResolvedValue(undefined);
+      fsMock.stat.mockImplementation(async (filePath: string) => {
+        if (filePath === outputPath) {
+          return { size: 2 * 1024 * 1024 };
+        }
+        return { size: 500 * 1024 };
+      });
+      fsMock.mkdir.mockResolvedValue(undefined);
+      fsMock.writeFile.mockResolvedValue(undefined);
+      fsMock.unlink.mockResolvedValue(undefined);
+
+      mockExecImplementation((command) => {
+        if (command.startsWith('ffprobe')) {
+          return {
+            stdout: JSON.stringify({
+              format: { duration: '60', bit_rate: '128000', tags: {} },
+            }),
+          };
+        }
+        if (command.startsWith('ffmpeg -v error')) {
+          return { stdout: '' };
+        }
+        return { stdout: '' };
+      });
+
+      spawnMock.mockReturnValue(createSpawnProcess(0));
+
+      await mergeChapters(chapters, {
+        title: 'Book "Quoted" $100',
+        author: 'Author',
+        outputPath,
+      });
+
+      // Get the args passed to spawn
+      const spawnCall = spawnMock.mock.calls[0];
+      const args = spawnCall[1] as string[];
+
+      // Find the title arg - double quotes and $ should be escaped
+      const titleArg = args.find((arg: string) => arg.startsWith('title='));
+
+      // Verify escaping is present for double quotes and dollar signs
+      expect(titleArg).toContain('\\"Quoted\\"');
+      expect(titleArg).toContain('\\$100');
+    });
+  });
 });

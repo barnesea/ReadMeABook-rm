@@ -243,13 +243,20 @@ organizePath = PathMapper.transform(sabPath, config)
 - When enabled, NZB downloads are automatically cleaned up after files are organized
 - Saves disk space by removing completed download files
 
-**Two-Stage Cleanup Process:**
-1. **Filesystem Cleanup:** Manually deletes download directory/files using `fs.rm()`
+**Three-Stage Cleanup Process:**
+1. **Download Cleanup:** Deletes download directory/files using `fs.rm()`
    - Removes extracted files from category download directory
    - Handles both single files and directories recursively
    - Gracefully handles already-deleted files (ENOENT)
 
-2. **SABnzbd Archive:** Archives NZB from history (hides from UI)
+2. **Parent Directory Cleanup:** Removes empty parent directories up to `download_dir`
+   - Uses `removeEmptyParentDirectories()` utility from `cleanup-helpers.ts`
+   - Walks up directory tree removing empty folders (e.g., empty category folder)
+   - Never deletes `download_dir` itself (protected boundary)
+   - Stops at first non-empty directory
+   - Gracefully handles permission errors and race conditions
+
+3. **SABnzbd Archive:** Archives NZB from history (hides from UI)
    - Uses SABnzbd's archive feature (default: `archive=1`)
    - Preserves job in hidden archive for troubleshooting/auditing
    - Does NOT permanently delete from history

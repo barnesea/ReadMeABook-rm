@@ -8,6 +8,7 @@ import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middlewar
 import { getConfigService } from '@/lib/services/config.service';
 import { getDownloadClientManager, invalidateDownloadClientManager } from '@/lib/services/download-client-manager.service';
 import { DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { getEncryptionService } from '@/lib/services/encryption.service';
 import { RMABLogger } from '@/lib/utils/logger';
 import { randomUUID } from 'crypto';
 
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Create new client config
+        // Create new client config for testing (with plaintext password)
         // qBittorrent credentials are optional (supports IP whitelist auth)
         const newClient: DownloadClientConfig = {
           id: randomUUID(),
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest) {
           enabled: true,
           url,
           username: username || '',
-          password: password || '',
+          password: password || '', // Plaintext for connection test
           disableSSLVerify: disableSSLVerify || false,
           remotePathMappingEnabled: remotePathMappingEnabled || false,
           remotePath: remotePath || undefined,
@@ -137,10 +138,17 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        // Encrypt all passwords before saving (existing clients come decrypted from getAllClients)
+        const encryptionService = getEncryptionService();
+        const allClients = [...existingClients, newClient];
+        const encryptedClients = allClients.map(c => ({
+          ...c,
+          password: c.password ? encryptionService.encrypt(c.password) : '',
+        }));
+
         // Save updated clients array
-        const updatedClients = [...existingClients, newClient];
         await config.setMany([
-          { key: 'download_clients', value: JSON.stringify(updatedClients) },
+          { key: 'download_clients', value: JSON.stringify(encryptedClients) },
         ]);
 
         // Invalidate cache

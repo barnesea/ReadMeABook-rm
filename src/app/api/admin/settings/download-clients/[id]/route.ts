@@ -8,6 +8,7 @@ import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middlewar
 import { getConfigService } from '@/lib/services/config.service';
 import { getDownloadClientManager, invalidateDownloadClientManager } from '@/lib/services/download-client-manager.service';
 import { DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { getEncryptionService } from '@/lib/services/encryption.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Admin.Settings.DownloadClients.ID');
@@ -97,10 +98,15 @@ export async function PUT(
           }
         }
 
-        // Update clients array
+        // Update clients array and encrypt passwords before saving
         clients[clientIndex] = updatedClient;
+        const encryptionService = getEncryptionService();
+        const encryptedClients = clients.map(c => ({
+          ...c,
+          password: c.password ? encryptionService.encrypt(c.password) : '',
+        }));
         await config.setMany([
-          { key: 'download_clients', value: JSON.stringify(clients) },
+          { key: 'download_clients', value: JSON.stringify(encryptedClients) },
         ]);
 
         // Invalidate cache
@@ -153,10 +159,15 @@ export async function DELETE(
 
         const deletedClient = clients[clientIndex];
 
-        // Remove client from array
+        // Remove client from array and encrypt passwords before saving
         const updatedClients = clients.filter(c => c.id !== id);
+        const encryptionService = getEncryptionService();
+        const encryptedClients = updatedClients.map(c => ({
+          ...c,
+          password: c.password ? encryptionService.encrypt(c.password) : '',
+        }));
         await config.setMany([
-          { key: 'download_clients', value: JSON.stringify(updatedClients) },
+          { key: 'download_clients', value: JSON.stringify(encryptedClients) },
         ]);
 
         // Invalidate cache

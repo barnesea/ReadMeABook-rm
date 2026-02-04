@@ -8,6 +8,8 @@
 
 import { randomUUID } from 'crypto';
 import { ConfigurationService } from './config.service';
+import { getEncryptionService } from './encryption.service';
+import { isEncryptedFormat } from './credential-migration.service';
 import { RMABLogger } from '@/lib/utils/logger';
 import { QBittorrentService } from '@/lib/integrations/qbittorrent.service';
 import { SABnzbdService } from '@/lib/integrations/sabnzbd.service';
@@ -86,8 +88,26 @@ export class DownloadClientManager {
     if (configValue) {
       try {
         const clients = JSON.parse(configValue) as DownloadClientConfig[];
-        this.clientsCache = clients;
-        return clients;
+
+        // Decrypt passwords if they're in encrypted format
+        const encryptionService = getEncryptionService();
+        const decryptedClients = clients.map(client => {
+          if (client.password && isEncryptedFormat(client.password)) {
+            try {
+              return {
+                ...client,
+                password: encryptionService.decrypt(client.password),
+              };
+            } catch (error) {
+              logger.error(`Failed to decrypt password for client ${client.name}`, { error });
+              return client;
+            }
+          }
+          return client;
+        });
+
+        this.clientsCache = decryptedClients;
+        return decryptedClients;
       } catch (error) {
         logger.error('Failed to parse download_clients config', { error });
         return [];

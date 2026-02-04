@@ -193,10 +193,11 @@ export async function POST(request: NextRequest) {
         create: { key: 'plex_url', value: plex.url },
       });
 
+      const encryptedPlexToken = encryptionService.encrypt(plex.token);
       await prisma.configuration.upsert({
         where: { key: 'plex_token' },
-        update: { value: plex.token },
-        create: { key: 'plex_token', value: plex.token },
+        update: { value: encryptedPlexToken, encrypted: true },
+        create: { key: 'plex_token', value: encryptedPlexToken, encrypted: true },
       });
 
       await prisma.configuration.upsert({
@@ -375,10 +376,11 @@ export async function POST(request: NextRequest) {
       create: { key: 'prowlarr_url', value: prowlarr.url },
     });
 
+    const encryptedProwlarrApiKey = encryptionService.encrypt(prowlarr.api_key);
     await prisma.configuration.upsert({
       where: { key: 'prowlarr_api_key' },
-      update: { value: prowlarr.api_key },
-      create: { key: 'prowlarr_api_key', value: prowlarr.api_key },
+      update: { value: encryptedProwlarrApiKey, encrypted: true },
+      create: { key: 'prowlarr_api_key', value: encryptedProwlarrApiKey, encrypted: true },
     });
 
     await prisma.configuration.upsert({
@@ -414,10 +416,16 @@ export async function POST(request: NextRequest) {
       throw new Error('Invalid download client configuration');
     }
 
+    // Encrypt passwords in download clients
+    const encryptedClients = downloadClientsArray.map(client => ({
+      ...client,
+      password: client.password ? encryptionService.encrypt(client.password) : '',
+    }));
+
     await prisma.configuration.upsert({
       where: { key: 'download_clients' },
-      update: { value: JSON.stringify(downloadClientsArray) },
-      create: { key: 'download_clients', value: JSON.stringify(downloadClientsArray) },
+      update: { value: JSON.stringify(encryptedClients) },
+      create: { key: 'download_clients', value: JSON.stringify(encryptedClients) },
     });
 
     // Path configuration

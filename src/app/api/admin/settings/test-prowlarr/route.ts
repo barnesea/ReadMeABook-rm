@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
-import { prisma } from '@/lib/db';
+import { getConfigService } from '@/lib/services/config.service';
 import { ProwlarrService } from '@/lib/integrations/prowlarr.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
@@ -24,21 +24,20 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // If API key is masked, fetch the actual value from database
+        // If API key is masked, fetch the actual value from database (decrypted)
         let actualApiKey = apiKey;
         if (apiKey.startsWith('••••')) {
-          const storedApiKey = await prisma.configuration.findUnique({
-            where: { key: 'prowlarr_api_key' },
-          });
+          const configService = getConfigService();
+          const storedApiKey = await configService.get('prowlarr_api_key');
 
-          if (!storedApiKey?.value) {
+          if (!storedApiKey) {
             return NextResponse.json(
               { success: false, error: 'No stored API key found. Please re-enter your Prowlarr API key.' },
               { status: 400 }
             );
           }
 
-          actualApiKey = storedApiKey.value;
+          actualApiKey = storedApiKey;
         }
 
         // Create a new ProwlarrService instance with test credentials
