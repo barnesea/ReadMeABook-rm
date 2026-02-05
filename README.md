@@ -50,6 +50,22 @@ User friendly audible-backed searches, multi-file chapter merging, e-book sideca
 
 **Prerequisites:** Docker, Plex or Audiobookshelf, qBittorrent or SABnzbd, Prowlarr
 
+### Quick Start
+
+```bash
+# Download docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/kikootwo/readmeabook/main/docker-compose.yml -o docker-compose.yml
+
+# Start the container
+docker compose up -d
+```
+
+Open http://localhost:3030 and follow the setup wizard.
+
+### Manual Setup
+
+If you prefer to customize the compose file:
+
 ```yaml
 services:
   readmeabook:
@@ -71,11 +87,7 @@ services:
       PUBLIC_URL: "https://audiobooks.example.com"  # Required for OAuth
 ```
 
-```bash
-docker compose up -d
-```
-
-Open http://localhost:3030 and follow the setup wizard.
+Then run `docker compose up -d` to start.
 
 **Important:** Your download client (qBittorrent/SABnzbd) and RMAB must see files at the same path. See the [Volume Mapping Guide](documentation/deployment/volume-mapping.md) if downloads aren't being detected.
 

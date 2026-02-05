@@ -55,7 +55,7 @@ describe('AudiobookCard', () => {
 
     render(<AudiobookCard audiobook={baseAudiobook} />);
 
-    const requestButton = screen.getByRole('button', { name: 'Login to Request' });
+    const requestButton = screen.getByRole('button', { name: 'Sign in to Request' });
     expect(requestButton).toBeDisabled();
     expect(createRequestMock).not.toHaveBeenCalled();
   });
@@ -79,12 +79,12 @@ describe('AudiobookCard', () => {
     expect(createRequestMock).toHaveBeenCalledWith(baseAudiobook);
     expect(onRequestSuccess).toHaveBeenCalled();
 
-    expect(screen.getByText(/Request created successfully/)).toBeInTheDocument();
+    expect(screen.getByText(/Request created!/)).toBeInTheDocument();
 
     await act(async () => {
       vi.advanceTimersByTime(3000);
     });
-    expect(screen.queryByText(/Request created successfully/)).toBeNull();
+    expect(screen.queryByText(/Request created!/)).toBeNull();
   });
 
   it('shows in-library state when available', async () => {
@@ -116,11 +116,11 @@ describe('AudiobookCard', () => {
       />
     );
 
-    const button = screen.getByRole('button', { name: 'Processing...' });
-    expect(button).toBeDisabled();
+    // Processing status is shown as a div overlay, not a button
+    expect(screen.getByText('Processing')).toBeInTheDocument();
   });
 
-  it('shows pending approval status with requester name', async () => {
+  it('shows pending status for awaiting_approval requests', async () => {
     const { AudiobookCard } = await import('@/components/audiobooks/AudiobookCard');
 
     render(
@@ -134,10 +134,12 @@ describe('AudiobookCard', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /Pending Approval \(alice\)/ })).toBeDisabled();
+    // Card shows "Requested" for all pending statuses
+    expect(screen.getByText('Requested')).toBeInTheDocument();
   });
 
-  it('shows a denied request state', async () => {
+  it('allows re-requesting for denied status', async () => {
+    authState.user = { id: 'user-1', username: 'user' };
     const { AudiobookCard } = await import('@/components/audiobooks/AudiobookCard');
 
     render(
@@ -146,7 +148,8 @@ describe('AudiobookCard', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: 'Request Denied' })).toBeDisabled();
+    // Denied status allows re-requesting, so Request button is shown
+    expect(screen.getByRole('button', { name: 'Request' })).toBeInTheDocument();
   });
 
   it('shows an error when a request fails', async () => {

@@ -19,6 +19,10 @@ vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => useAuthMock(),
 }));
 
+vi.mock('@/contexts/PreferencesContext', () => ({
+  usePreferences: () => ({ squareCovers: false, setSquareCovers: vi.fn(), cardSize: 5, setCardSize: vi.fn() }),
+}));
+
 vi.mock('@/lib/hooks/useAudiobooks', () => ({
   useAudiobookDetails: (asin: string | null) => useAudiobookDetailsMock(asin),
 }));
@@ -90,7 +94,9 @@ describe('AudiobookDetailsModal', () => {
     expect(screen.getByText('Detail Book')).toBeInTheDocument();
     expect(document.body.style.overflow).toBe('hidden');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close modal' }));
+    // Both mobile and desktop close buttons exist, click the first one
+    const closeButtons = screen.getAllByRole('button', { name: 'Close' });
+    fireEvent.click(closeButtons[0]);
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -120,7 +126,7 @@ describe('AudiobookDetailsModal', () => {
     });
 
     expect(onRequestSuccess).toHaveBeenCalled();
-    expect(screen.getByText(/Request created successfully/)).toBeInTheDocument();
+    expect(screen.getByText(/Request created!/)).toBeInTheDocument();
 
     await act(async () => {
       vi.advanceTimersByTime(2000);
@@ -167,7 +173,7 @@ describe('AudiobookDetailsModal', () => {
     );
 
     await act(async () => {});
-    expect(screen.getByText('Failed to load audiobook details')).toBeInTheDocument();
+    expect(screen.getByText('Failed to load details')).toBeInTheDocument();
   });
 
   it('shows availability state and hides interactive search when available', async () => {
@@ -183,8 +189,9 @@ describe('AudiobookDetailsModal', () => {
     );
 
     await act(async () => {});
-    expect(screen.getByText('Available in Your Library')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Interactive Search')).toBeNull();
+    // Status badge and button both show "In Your Library"
+    expect(screen.getAllByText('In Your Library').length).toBeGreaterThan(0);
+    expect(screen.queryByTitle('Interactive Search')).toBeNull();
   });
 
   it('shows pending approval status with requester name', async () => {
@@ -205,7 +212,7 @@ describe('AudiobookDetailsModal', () => {
     expect(screen.getByRole('button', { name: /Pending Approval \(alice\)/ })).toBeDisabled();
   });
 
-  it('shows a denied request state', async () => {
+  it('shows request button for denied status (allows re-request)', async () => {
     const { AudiobookDetailsModal } = await import('@/components/audiobooks/AudiobookDetailsModal');
 
     render(
@@ -219,10 +226,11 @@ describe('AudiobookDetailsModal', () => {
     );
 
     await act(async () => {});
-    expect(screen.getByRole('button', { name: 'Request Denied' })).toBeDisabled();
+    // Denied status allows re-requesting, shows Request Audiobook button
+    expect(screen.getByRole('button', { name: 'Request Audiobook' })).toBeInTheDocument();
   });
 
-  it('shows Not Found when rating is missing', async () => {
+  it('does not show rating badge when rating is zero', async () => {
     useAudiobookDetailsMock.mockReturnValue({
       audiobook: { ...audiobookDetails, rating: 0 },
       isLoading: false,
@@ -239,7 +247,8 @@ describe('AudiobookDetailsModal', () => {
     );
 
     await act(async () => {});
-    expect(screen.getByText('Not Found')).toBeInTheDocument();
+    // Rating badge is not shown when rating is 0
+    expect(screen.queryByText('0.0')).toBeNull();
   });
 
   it('opens interactive search when requested', async () => {
@@ -257,7 +266,7 @@ describe('AudiobookDetailsModal', () => {
 
     expect(screen.queryByTestId('interactive-modal')).toBeNull();
 
-    fireEvent.click(screen.getByLabelText('Interactive Search'));
+    fireEvent.click(screen.getByTitle('Interactive Search'));
 
     expect(screen.getByTestId('interactive-modal')).toHaveAttribute('data-open', 'true');
   });

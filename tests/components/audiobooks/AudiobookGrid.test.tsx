@@ -29,7 +29,7 @@ describe('AudiobookGrid', () => {
 
     const { container } = render(<AudiobookGrid audiobooks={[]} isLoading={true} />);
 
-    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(8);
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(10);
   });
 
   it('shows the empty message when there are no results', async () => {
