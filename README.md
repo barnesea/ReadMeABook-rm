@@ -10,7 +10,7 @@
   [![GitHub Sponsors](https://img.shields.io/github/sponsors/kikootwo?style=for-the-badge&logo=github&logoColor=white&label=Sponsor&color=EA4AAA)](https://github.com/sponsors/kikootwo)
   [![Build Status](https://img.shields.io/github/actions/workflow/status/kikootwo/readmeabook/build-unified-image.yml?branch=main&style=for-the-badge&logo=github&label=Build)](https://github.com/kikootwo/readmeabook/actions/workflows/build-unified-image.yml)
   [![Tests](https://img.shields.io/github/actions/workflow/status/kikootwo/readmeabook/run-tests.yml?branch=main&style=for-the-badge&logo=github&label=Tests)](https://github.com/kikootwo/readmeabook/actions/workflows/run-tests.yml)
-  [![Docker Pulls](https://img.shields.io/docker/pulls/kikootwo/readmeabook?style=for-the-badge&logo=docker&logoColor=white)](https://github.com/kikootwo/readmeabook/pkgs/container/readmeabook)
+  [![Docker Pulls](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fghcr-badge.elias.eu.org%2Fapi%2Fkikootwo%2Freadmeabook%2Freadmeabook&query=downloadCount&style=for-the-badge&logo=docker&label=Docker%20Pulls&color=2496ed)](https://github.com/kikootwo/readmeabook/pkgs/container/readmeabook)
   [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=for-the-badge)](https://www.gnu.org/licenses/agpl-3.0)
   [![GitHub Stars](https://img.shields.io/github/stars/kikootwo/readmeabook?style=for-the-badge&logo=github)](https://github.com/kikootwo/readmeabook/stargazers)
   [![Discord](https://img.shields.io/discord/1450562177277755464?style=for-the-badge&logo=discord&logoColor=white&label=Discord)](https://discord.gg/kaw6jKbKts)
