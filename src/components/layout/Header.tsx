@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { VersionBadge } from '@/components/ui/VersionBadge';
 import { ChangePasswordModal } from '@/components/ui/ChangePasswordModal';
 import { useSmartDropdownPosition } from '@/hooks/useSmartDropdownPosition';
+import { RequestLimitInfo } from '@/components/layout/RequestLimitInfo';
 
 export function Header() {
   const { user, logout } = useAuth();
@@ -187,6 +188,9 @@ export function Header() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </Link>
+
+            {/* Request Limit Info (visible on desktop) */}
+            {user && <RequestLimitInfo />}
 
             {/* Mobile Menu Button */}
             <button

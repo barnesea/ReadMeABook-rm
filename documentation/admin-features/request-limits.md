@@ -10,7 +10,7 @@ Configurable request limits that allow admins to set maximum number of requests 
 
 ### Configuration
 - **Server-wide defaults**: Configured in admin settings (Request Limits tab)
-- **Per-user overrides**: Configured in admin users page
+- **Per-user overrides**: Configured in admin users page (Edit User dialog)
 - **Limit type**: Rolling window (n requests per m days)
 
 ### Configuration Keys
@@ -28,7 +28,7 @@ Configurable request limits that allow admins to set maximum number of requests 
 | `requestLimitPeriod` | integer | 0 | Period in days (0 = use global) |
 
 ### Limit Logic
-1. If user's `requestLimitEnabled` is true → Use user's `requestLimitCount` and `requestLimitPeriod`
+1. If user's `requestLimitEnabled` is true AND count/period > 0 → Use user's custom limits
 2. Otherwise → Use server-wide defaults
 3. If count or period is 0 → Unlimited requests
 4. Only counts requests created in the rolling window
@@ -138,6 +138,15 @@ Update user (includes request limit fields)
 - Show when limit will reset
 - Show how many requests remaining
 
+### Admin Users Page
+- Per-user limit configuration in Edit User dialog:
+  - Toggle to enable/disable per-user limits
+  - Custom count input (max requests per period)
+  - Custom period input (days)
+- Request Limits column in users table showing:
+  - Badge with count/period when per-user limits are enabled
+  - "Global" text when using server-wide defaults
+
 ## Database Schema
 
 ### User Table
@@ -159,8 +168,9 @@ key: 'request_limit.period'   // number as string
 ### Backend
 - `prisma/schema.prisma` - Added request limit fields to User table
 - `src/lib/services/config.service.ts` - Added request limit config methods
-- `src/app/api/requests/route.ts` - Added limit check before creating requests
+- `src/app/api/requests/route.ts` - Updated limit check to use per-user limits first
 - `src/app/api/admin/settings/request-limits/route.ts` - New API endpoint
+- `src/app/api/admin/users/route.ts` - Added request limit fields to user list
 - `src/app/api/admin/users/[id]/route.ts` - Added request limit fields to user update
 
 ### Frontend
@@ -168,6 +178,7 @@ key: 'request_limit.period'   // number as string
 - `src/app/admin/settings/lib/helpers.ts` - Added request-limits tab handling
 - `src/app/admin/settings/lib/types.ts` - Added RequestLimitSettings type
 - `src/app/admin/settings/tabs/RequestLimitsTab/RequestLimitsTab.tsx` - New tab component
+- `src/app/admin/users/page.tsx` - Added per-user request limit configuration UI
 
 ## Testing Strategy
 

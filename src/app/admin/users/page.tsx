@@ -25,6 +25,9 @@ interface User {
   updatedAt: string;
   lastLoginAt: string | null;
   autoApproveRequests: boolean | null;
+  requestLimitEnabled: boolean;
+  requestLimitCount: number;
+  requestLimitPeriod: number;
   _count: {
     requests: number;
   };
@@ -53,6 +56,9 @@ function AdminUsersPageContent() {
     user: User | null;
   }>({ isOpen: false, user: null });
   const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
+  const [editRequestLimitEnabled, setEditRequestLimitEnabled] = useState(false);
+  const [editRequestLimitCount, setEditRequestLimitCount] = useState(5);
+  const [editRequestLimitPeriod, setEditRequestLimitPeriod] = useState(7);
   const [saving, setSaving] = useState(false);
   const [processingUserId, setProcessingUserId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -138,6 +144,9 @@ function AdminUsersPageContent() {
 
   const showEditDialog = (user: User) => {
     setEditRole(user.role);
+    setEditRequestLimitEnabled(user.requestLimitEnabled);
+    setEditRequestLimitCount(user.requestLimitCount);
+    setEditRequestLimitPeriod(user.requestLimitPeriod);
     setEditDialog({ isOpen: true, user });
   };
 
@@ -145,14 +154,19 @@ function AdminUsersPageContent() {
     setEditDialog({ isOpen: false, user: null });
   };
 
-  const saveUserRole = async () => {
+  const saveUserSettings = async () => {
     if (!editDialog.user) return;
 
     try {
       setSaving(true);
       await fetchJSON(`/api/admin/users/${editDialog.user.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ role: editRole }),
+        body: JSON.stringify({
+          role: editRole,
+          requestLimitEnabled: editRequestLimitEnabled,
+          requestLimitCount: editRequestLimitCount,
+          requestLimitPeriod: editRequestLimitPeriod,
+        }),
       });
       toast.success(`User "${editDialog.user.plexUsername}" updated successfully`);
       hideEditDialog();
@@ -406,6 +420,9 @@ function AdminUsersPageContent() {
                   Auto-Approve
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Request Limits
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Requests
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -497,6 +514,22 @@ function AdminUsersPageContent() {
                       )}
                     </div>
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      {user.requestLimitEnabled ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          {user.requestLimitCount} / {user.requestLimitPeriod}d
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-500 dark:text-gray-400 italic">
+                          Global
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {user._count.requests}
                   </td>
@@ -515,12 +548,16 @@ function AdminUsersPageContent() {
                           <span>Protected</span>
                         </span>
                       ) : user.authProvider === 'oidc' ? (
-                        <span className="inline-flex items-center gap-1 text-gray-400 dark:text-gray-600 cursor-not-allowed" title="OIDC user roles are managed by the identity provider (use admin role mapping in settings)">
+                        <button
+                          onClick={() => showEditDialog(user)}
+                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                          title="Edit user settings (request limits)"
+                        >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                           </svg>
-                          <span>OIDC Managed</span>
-                        </span>
+                          <span>Edit Settings</span>
+                        </button>
                       ) : user.authProvider === 'plex' ? (
                         <button
                           onClick={() => showEditDialog(user)}
@@ -588,7 +625,7 @@ function AdminUsersPageContent() {
             <li>• <strong>Admin:</strong> Full system access including settings, user management, and all requests</li>
             <li>• <strong>Setup Admin:</strong> The initial admin account created during setup - this account is protected and cannot be changed or deleted</li>
             <li>• <strong>Auto-Approve:</strong> When the global setting is enabled, all requests are automatically processed. When disabled, you can control auto-approval per user. Admin requests are always auto-approved.</li>
-            <li>• <strong>OIDC Users:</strong> Role management is handled by the identity provider - use admin role mapping in OIDC settings. Cannot be deleted as access is managed externally.</li>
+            <li>• <strong>OIDC Users:</strong> Role management is handled by the identity provider (use admin role mapping in settings). Cannot be deleted as access is managed externally. Request limits can still be configured.</li>
             <li>• <strong>Plex Users:</strong> Can have their roles changed, but cannot be deleted as access is managed by Plex.</li>
             <li>• <strong>Local Users:</strong> Can be freely assigned user or admin roles (except setup admin). Can be deleted (their requests are preserved for historical records).</li>
             <li>• You cannot change your own role or delete yourself for security reasons</li>
@@ -600,7 +637,7 @@ function AdminUsersPageContent() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-                Edit User Role
+                Edit User Settings
               </h3>
               <div className="space-y-4 mb-6">
                 {/* User Info */}
@@ -666,6 +703,95 @@ function AdminUsersPageContent() {
                     </label>
                   </div>
                 </div>
+
+                {/* Request Limit Settings */}
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      Request Limits
+                    </label>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editRequestLimitEnabled}
+                        onChange={(e) => setEditRequestLimitEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                  {editRequestLimitEnabled && (
+                    <div className="space-y-3 ml-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Max Requests
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="1000"
+                          value={editRequestLimitCount}
+                          onChange={(e) => setEditRequestLimitCount(parseInt(e.target.value, 10) || 1)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Maximum number of requests allowed per period
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Period (Days)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="365"
+                          value={editRequestLimitPeriod}
+                          onChange={(e) => setEditRequestLimitPeriod(parseInt(e.target.value, 10) || 1)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Time period in days for the limit to reset
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    Configure per-user request limits. When disabled, uses server-wide defaults.
+                  </p>
+                </div>
+
+                {/* Reset Request Limit Button */}
+                {editRequestLimitEnabled && (
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <button
+                      onClick={async () => {
+                        if (!editDialog.user) return;
+                        try {
+                          await fetchJSON(`/api/admin/users/${editDialog.user.id}/reset-request-limit`, {
+                            method: 'POST',
+                          });
+                          toast.success(`Request limit reset for ${editDialog.user.plexUsername}`);
+                          // Refresh user data
+                          mutate();
+                        } catch (err) {
+                          const errorMsg = err instanceof Error ? err.message : 'Failed to reset request limit';
+                          toast.error(errorMsg);
+                          console.error(err);
+                        }
+                      }}
+                      className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Reset Request Limit
+                    </button>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                      Resets the current request count and period timer for this user
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
@@ -678,7 +804,7 @@ function AdminUsersPageContent() {
                   Cancel
                 </button>
                 <button
-                  onClick={saveUserRole}
+                  onClick={saveUserSettings}
                   disabled={saving}
                   className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >

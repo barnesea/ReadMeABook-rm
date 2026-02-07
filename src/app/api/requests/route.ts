@@ -43,18 +43,56 @@ async function checkRequestLimit(userId: string): Promise<{
   };
 } | null> {
   try {
-    const configService = getConfigService();
-    const requestLimitConfig = await configService.getRequestLimitConfig();
+    // Get user's request limit settings and count requests in a single query
+    const result = await prisma.$transaction([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          requestLimitEnabled: true,
+          requestLimitCount: true,
+          requestLimitPeriod: true,
+        },
+      }),
+      prisma.configuration.findMany({
+        where: {
+          key: {
+            in: ['request_limit.enabled', 'request_limit.count', 'request_limit.period'],
+          },
+        },
+      }),
+    ]);
+
+    const [user, configs] = result;
+
+    // Parse config values
+    const configMap: Record<string, string | null> = {};
+    configs.forEach((c) => {
+      configMap[c.key] = c.value;
+    });
+
+    let enabled = false;
+    let count = 5; // default
+    let period = 7; // default
+
+    if (user && user.requestLimitEnabled && user.requestLimitCount > 0 && user.requestLimitPeriod > 0) {
+      // Use per-user limits
+      enabled = true;
+      count = user.requestLimitCount;
+      period = user.requestLimitPeriod;
+    } else {
+      // Fall back to server-wide defaults
+      enabled = configMap['request_limit.enabled'] === 'true';
+      count = parseInt(configMap['request_limit.count'] || '5', 10);
+      period = parseInt(configMap['request_limit.period'] || '7', 10);
+    }
 
     // If limit is disabled or set to 0, allow unlimited requests
-    if (!requestLimitConfig.enabled || requestLimitConfig.count <= 0 || requestLimitConfig.period <= 0) {
+    if (!enabled || count <= 0 || period <= 0) {
       return null;
     }
 
-    const { count: maxRequests, period: periodDays } = requestLimitConfig;
-
     // Calculate the date range for the rolling window
-    const periodMs = periodDays * 24 * 60 * 60 * 1000;
+    const periodMs = period * 24 * 60 * 60 * 1000;
     const windowStart = new Date(Date.now() - periodMs);
 
     // Count requests made in the rolling window
@@ -68,7 +106,7 @@ async function checkRequestLimit(userId: string): Promise<{
     });
 
     // Check if user has exceeded the limit
-    if (requestsMade >= maxRequests) {
+    if (requestsMade >= count) {
       // Find the oldest request in the window to calculate reset time
       const oldestRequest = await prisma.request.findFirst({
         where: {
@@ -84,11 +122,19 @@ async function checkRequestLimit(userId: string): Promise<{
       const resetAt = oldestRequest ? new Date(oldestRequest.createdAt.getTime() + periodMs) : new Date(Date.now() + periodMs);
       const hoursUntilReset = Math.ceil((resetAt.getTime() - Date.now()) / (1000 * 60 * 60));
 
+      logger.info('Request limit exceeded', {
+        userId,
+        count,
+        period,
+        requestsMade,
+        hoursUntilReset,
+      });
+
       return {
-        message: `You have reached your request limit of ${maxRequests} requests per ${periodDays} days. Your limit will reset in approximately ${hoursUntilReset} hours.`,
+        message: `You have reached your request limit of ${count} requests per ${period} days. Your limit will reset in approximately ${hoursUntilReset} hours.`,
         limit: {
-          count: maxRequests,
-          periodDays,
+          count,
+          periodDays: period,
           requestsMade,
           resetAt: resetAt.toISOString(),
         },

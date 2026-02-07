@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
             updatedAt: true,
             lastLoginAt: true,
             autoApproveRequests: true,
+            requestLimitEnabled: true,
+            requestLimitCount: true,
+            requestLimitPeriod: true,
             _count: {
               select: {
                 requests: true,
