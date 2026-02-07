@@ -19,6 +19,7 @@ export interface Settings {
   downloadClient: DownloadClientSettings;
   paths: PathsSettings;
   ebook: EbookSettings;
+  requestLimits: RequestLimitSettings;
 }
 
 /**
@@ -117,6 +118,15 @@ export interface EbookSettings {
   autoGrabEnabled: boolean;
   // Kindle compatibility
   kindleFixEnabled: boolean;
+}
+
+/**
+ * Request limit configuration
+ */
+export interface RequestLimitSettings {
+  enabled: boolean;
+  count: number;
+  period: number;
 }
 
 /**
@@ -240,4 +250,4 @@ export interface BookDateModel {
 /**
  * Tab identifier type
  */
-export type SettingsTab = 'library' | 'auth' | 'prowlarr' | 'download' | 'paths' | 'ebook' | 'bookdate' | 'notifications';
+ export type SettingsTab = 'library' | 'auth' | 'prowlarr' | 'download' | 'paths' | 'ebook' | 'bookdate' | 'notifications' | 'request-limits';

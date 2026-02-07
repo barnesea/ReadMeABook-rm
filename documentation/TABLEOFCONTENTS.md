@@ -92,6 +92,7 @@
 - **Jobs management UI** → [backend/services/scheduler.md](backend/services/scheduler.md)
 - **Request deletion (soft delete, seeding awareness)** → [admin-features/request-deletion.md](admin-features/request-deletion.md)
 - **Request approval system, auto-approve settings** → [admin-features/request-approval.md](admin-features/request-approval.md)
+- **Request limits (server-wide and per-user)** → [admin-features/request-limits.md](admin-features/request-limits.md)
 
 ## Fixes & Improvements
 - **File hash-based library matching (ABS)** → [fixes/file-hash-matching.md](fixes/file-hash-matching.md)

@@ -53,6 +53,11 @@ model User {
   // Request approval preferences
   autoApproveRequests Boolean? @map("auto_approve_requests") // null = use global setting, true = auto-approve, false = require approval
 
+  // Request limit preferences
+  requestLimitEnabled Boolean @default(false) @map("request_limit_enabled")
+  requestLimitCount   Int     @default(0) @map("request_limit_count")     // Max requests per period (0 = unlimited)
+  requestLimitPeriod  Int     @default(0) @map("request_limit_period")    // Period in days (0 = unlimited)
+
   // Soft delete support
   deletedAt DateTime? @map("deleted_at")
   deletedBy String?   @map("deleted_by") // Admin user ID who deleted this user

@@ -45,6 +45,9 @@ paths.media_library
 paths.audiobook_path_template
 automation.check_interval_seconds
 system.setup_completed
+request_limit.enabled
+request_limit.count
+request_limit.period
 ```
 
 ## Service API
@@ -69,6 +72,10 @@ interface ConfigService {
 
   isSetupCompleted(): Promise<boolean>;
   testConnection(category: string): Promise<{success: boolean, message: string}>;
+
+  // Request limit helpers
+  getRequestLimitConfig(): Promise<{enabled: boolean, count: number, period: number}>;
+  setRequestLimitConfig(enabled: boolean, count: number, period: number): Promise<void>;
 }
 ```
 

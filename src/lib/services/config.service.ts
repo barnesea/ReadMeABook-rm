@@ -238,6 +238,36 @@ export class ConfigurationService {
   }
 
   /**
+   * Get request limit configuration
+   */
+  async getRequestLimitConfig(): Promise<{
+    enabled: boolean;
+    count: number;
+    period: number;
+  }> {
+    const enabled = await this.get('request_limit.enabled');
+    const count = await this.get('request_limit.count');
+    const period = await this.get('request_limit.period');
+
+    return {
+      enabled: enabled === 'true',
+      count: parseInt(count || '5', 10),
+      period: parseInt(period || '7', 10),
+    };
+  }
+
+  /**
+   * Set request limit configuration
+   */
+  async setRequestLimitConfig(enabled: boolean, count: number, period: number): Promise<void> {
+    await this.setMany([
+      { key: 'request_limit.enabled', value: enabled ? 'true' : 'false' },
+      { key: 'request_limit.count', value: count.toString() },
+      { key: 'request_limit.period', value: period.toString() },
+    ]);
+  }
+
+  /**
    * Clear the cache for a specific key or all keys
    */
   clearCache(key?: string): void {

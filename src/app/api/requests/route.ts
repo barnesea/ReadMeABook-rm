@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db';
 import { getJobQueueService } from '@/lib/services/job-queue.service';
 import { findPlexMatch } from '@/lib/utils/audiobook-matcher';
 import { getAudibleService } from '@/lib/integrations/audible.service';
+import { getConfigService } from '@/lib/services/config.service';
 import { z } from 'zod';
 import { RMABLogger } from '@/lib/utils/logger';
 
@@ -27,6 +28,80 @@ const CreateRequestSchema = z.object({
     rating: z.number().nullable().optional(),
   }),
 });
+
+/**
+ * Check if user has exceeded their request limit
+ * Returns error object if limit exceeded, null otherwise
+ */
+async function checkRequestLimit(userId: string): Promise<{
+  message: string;
+  limit: {
+    count: number;
+    periodDays: number;
+    requestsMade: number;
+    resetAt: string;
+  };
+} | null> {
+  try {
+    const configService = getConfigService();
+    const requestLimitConfig = await configService.getRequestLimitConfig();
+
+    // If limit is disabled or set to 0, allow unlimited requests
+    if (!requestLimitConfig.enabled || requestLimitConfig.count <= 0 || requestLimitConfig.period <= 0) {
+      return null;
+    }
+
+    const { count: maxRequests, period: periodDays } = requestLimitConfig;
+
+    // Calculate the date range for the rolling window
+    const periodMs = periodDays * 24 * 60 * 60 * 1000;
+    const windowStart = new Date(Date.now() - periodMs);
+
+    // Count requests made in the rolling window
+    const requestsMade = await prisma.request.count({
+      where: {
+        userId,
+        createdAt: { gte: windowStart },
+        type: 'audiobook', // Only count audiobook requests
+        deletedAt: null, // Exclude soft-deleted requests
+      },
+    });
+
+    // Check if user has exceeded the limit
+    if (requestsMade >= maxRequests) {
+      // Find the oldest request in the window to calculate reset time
+      const oldestRequest = await prisma.request.findFirst({
+        where: {
+          userId,
+          createdAt: { gte: windowStart },
+          type: 'audiobook',
+          deletedAt: null,
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+
+      const resetAt = oldestRequest ? new Date(oldestRequest.createdAt.getTime() + periodMs) : new Date(Date.now() + periodMs);
+      const hoursUntilReset = Math.ceil((resetAt.getTime() - Date.now()) / (1000 * 60 * 60));
+
+      return {
+        message: `You have reached your request limit of ${maxRequests} requests per ${periodDays} days. Your limit will reset in approximately ${hoursUntilReset} hours.`,
+        limit: {
+          count: maxRequests,
+          periodDays,
+          requestsMade,
+          resetAt: resetAt.toISOString(),
+        },
+      };
+    }
+
+    return null;
+  } catch (error) {
+    logger.error('Failed to check request limit', { error: error instanceof Error ? error.message : String(error) });
+    // On error, allow the request to proceed (fail open)
+    return null;
+  }
+}
 
 /**
  * POST /api/requests
@@ -197,10 +272,19 @@ export async function POST(request: NextRequest) {
           where: { id: existingRequest.id },
         });
       }
-
+   
+      // Check request limit
+      const requestLimitError = await checkRequestLimit(req.user.id);
+      if (requestLimitError) {
+        return NextResponse.json(
+          { error: 'RequestLimitExceeded', ...requestLimitError },
+          { status: 429 }
+        );
+      }
+   
       // Check if we should skip auto-search (for interactive search)
       const skipAutoSearch = req.nextUrl.searchParams.get('skipAutoSearch') === 'true';
-
+   
       // Check if request needs approval
       let needsApproval = false;
       let shouldTriggerSearch = !skipAutoSearch;

@@ -19,6 +19,10 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
     - `null` = Use global setting (Configuration.auto_approve_requests)
     - `true` = Always auto-approve this user's requests
     - `false` = Always require admin approval for this user's requests
+- **Request limit control:**
+  - `request_limit_enabled` (bool, default false) - Enable per-user request limits
+  - `request_limit_count` (int, default 0) - Max requests per period (0 = unlimited)
+  - `request_limit_period` (int, default 0) - Period in days (0 = unlimited)
 - **BookDate per-user preferences:**
   - `bookdate_library_scope` ('full'|'rated', default 'full') - Library scope for recommendations
   - `bookdate_custom_prompt` (text, optional, max 1000 chars) - Custom preferences for AI
@@ -87,8 +91,12 @@ PostgreSQL database storing users, audiobooks, requests, downloads, configuratio
 - Example keys: `plex.server_url`, `plex.auth_token`, `indexer.prowlarr_url`, `download_client.qbittorrent_password`, `paths.downloads`, `setup.completed`, `auto_approve_requests`
 - **Request approval:**
   - `auto_approve_requests` (value: 'true'|'false') - Global setting for auto-approving requests
-  - If 'true' and User.autoApproveRequests is null, requests auto-approved
-  - If not 'true' and User.autoApproveRequests is null, requests require admin approval
+    - If 'true' and User.autoApproveRequests is null, requests auto-approved
+    - If not 'true' and User.autoApproveRequests is null, requests require admin approval
+- **Request limits (server-wide defaults):**
+  - `request_limit.enabled` (value: 'true'|'false') - Enable server-wide request limits
+  - `request_limit.count` (value: number as string) - Max requests per period
+  - `request_limit.period` (value: number as string) - Period in days
 
 ### Jobs
 - `id` (UUID PK), `bull_job_id`, `request_id` (FK nullable)

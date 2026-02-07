@@ -4,10 +4,10 @@ services:
 #    build:
 #      context: .
 #      dockerfile: dockerfile.unified
-    container_name: readmeabook
+    container_name: readmeabook-dev
     restart: unless-stopped
     ports:
-      - "3030:3030"
+      - "3033:3030"
     volumes:
       # Application config and cache
       - ./config:/app/config

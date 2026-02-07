@@ -23,6 +23,7 @@ import { PathsTab } from './tabs/PathsTab/PathsTab';
 import { EbookTab } from './tabs/EbookTab/EbookTab';
 import { BookDateTab } from './tabs/BookDateTab/BookDateTab';
 import { NotificationsTab } from './tabs/NotificationsTab';
+import { RequestLimitsTab } from './tabs/RequestLimitsTab/RequestLimitsTab';
 
 // Types and Helpers
 import type { Settings, SettingsTab, IndexerConfig, SavedIndexerConfig, Message } from './lib/types';
@@ -344,7 +345,10 @@ export default function AdminSettings() {
 
           {/* Notifications Tab */}
           {activeTab === 'notifications' && <NotificationsTab />}
-
+       
+          {/* Request Limits Tab */}
+          {activeTab === 'request-limits' && <RequestLimitsTab />}
+       
           {/* Save Button (only for tabs that save through main page) */}
           {activeTab !== 'ebook' && activeTab !== 'bookdate' && activeTab !== 'notifications' && (
             <div className="mt-8 flex gap-4">

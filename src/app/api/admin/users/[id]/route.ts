@@ -19,7 +19,7 @@ export async function PUT(
       try {
         const { id } = await params;
         const body = await request.json();
-        const { role, autoApproveRequests } = body;
+        const { role, autoApproveRequests, requestLimitEnabled, requestLimitCount, requestLimitPeriod } = body;
 
         // Validate role
         if (!role || (role !== 'user' && role !== 'admin')) {
@@ -33,6 +33,30 @@ export async function PUT(
         if (autoApproveRequests !== undefined && autoApproveRequests !== null && typeof autoApproveRequests !== 'boolean') {
           return NextResponse.json(
             { error: 'Invalid autoApproveRequests. Must be a boolean or null' },
+            { status: 400 }
+          );
+        }
+
+        // Validate requestLimitEnabled (optional)
+        if (requestLimitEnabled !== undefined && typeof requestLimitEnabled !== 'boolean') {
+          return NextResponse.json(
+            { error: 'Invalid requestLimitEnabled. Must be a boolean' },
+            { status: 400 }
+          );
+        }
+
+        // Validate requestLimitCount (optional, must be 0 or positive)
+        if (requestLimitCount !== undefined && (typeof requestLimitCount !== 'number' || requestLimitCount < 0)) {
+          return NextResponse.json(
+            { error: 'Invalid requestLimitCount. Must be a non-negative number' },
+            { status: 400 }
+          );
+        }
+
+        // Validate requestLimitPeriod (optional, must be 0 or positive)
+        if (requestLimitPeriod !== undefined && (typeof requestLimitPeriod !== 'number' || requestLimitPeriod < 0)) {
+          return NextResponse.json(
+            { error: 'Invalid requestLimitPeriod. Must be a non-negative number' },
             { status: 400 }
           );
         }
@@ -100,12 +124,27 @@ export async function PUT(
         }
 
         // Prepare update data
-        const updateData: { role: string; autoApproveRequests?: boolean | null } = { role };
+        const updateData: {
+          role: string;
+          autoApproveRequests?: boolean | null;
+          requestLimitEnabled?: boolean;
+          requestLimitCount?: number;
+          requestLimitPeriod?: number;
+        } = { role };
         if (autoApproveRequests !== undefined) {
           updateData.autoApproveRequests = autoApproveRequests;
         }
+        if (requestLimitEnabled !== undefined) {
+          updateData.requestLimitEnabled = requestLimitEnabled;
+        }
+        if (requestLimitCount !== undefined) {
+          updateData.requestLimitCount = requestLimitCount;
+        }
+        if (requestLimitPeriod !== undefined) {
+          updateData.requestLimitPeriod = requestLimitPeriod;
+        }
 
-        // Update user role and autoApproveRequests
+        // Update user role and settings
         const updatedUser = await prisma.user.update({
           where: { id },
           data: updateData,
@@ -114,6 +153,9 @@ export async function PUT(
             plexUsername: true,
             role: true,
             autoApproveRequests: true,
+            requestLimitEnabled: true,
+            requestLimitCount: true,
+            requestLimitPeriod: true,
           },
         });
 

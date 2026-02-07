@@ -135,6 +135,20 @@ export const saveTabSettings = async (
       });
       break;
 
+    case 'request-limits':
+      await fetchWithAuth('/api/admin/settings/request-limits', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: settings.requestLimits?.enabled ?? false,
+          count: settings.requestLimits?.count ?? 5,
+          period: settings.requestLimits?.period ?? 7,
+        }),
+      }).then(res => {
+        if (!res.ok) throw new Error('Failed to save request limit settings');
+      });
+      break;
+
     default:
       throw new Error('Unknown settings tab or tab handles its own saving');
   }
@@ -210,6 +224,7 @@ export const getTabValidation = (
       return validated.paths;
     case 'ebook':
     case 'bookdate':
+    case 'request-limits':
       return true; // These tabs handle their own saving
     default:
       return false;
@@ -228,4 +243,5 @@ export const getTabs = (backendMode: 'plex' | 'audiobookshelf') => [
   { id: 'ebook' as const, label: 'E-book Sidecar', icon: '📖' },
   { id: 'bookdate' as const, label: 'BookDate', icon: '📚' },
   { id: 'notifications' as const, label: 'Notifications', icon: '🔔' },
+  { id: 'request-limits' as const, label: 'Request Limits', icon: '⏳' },
 ];
