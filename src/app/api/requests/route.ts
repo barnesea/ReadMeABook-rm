@@ -9,7 +9,6 @@ import { prisma } from '@/lib/db';
 import { getJobQueueService } from '@/lib/services/job-queue.service';
 import { findPlexMatch } from '@/lib/utils/audiobook-matcher';
 import { getAudibleService } from '@/lib/integrations/audible.service';
-import { getConfigService } from '@/lib/services/config.service';
 import { z } from 'zod';
 import { RMABLogger } from '@/lib/utils/logger';
 
@@ -32,8 +31,9 @@ const CreateRequestSchema = z.object({
 /**
  * Check if user has exceeded their request limit
  * Returns error object if limit exceeded, null otherwise
+ * Admin users always have unlimited requests
  */
-async function checkRequestLimit(userId: string): Promise<{
+async function checkRequestLimit(userId: string, role: 'admin' | 'user'): Promise<{
   message: string;
   limit: {
     count: number;
@@ -42,6 +42,11 @@ async function checkRequestLimit(userId: string): Promise<{
     resetAt: string;
   };
 } | null> {
+  // Admin users always have unlimited requests
+  if (role === 'admin') {
+    return null;
+  }
+
   try {
     // Get user's request limit settings and count requests in a single query
     const result = await prisma.$transaction([
@@ -319,22 +324,13 @@ export async function POST(request: NextRequest) {
         });
       }
    
-      // Check request limit
-      const requestLimitError = await checkRequestLimit(req.user.id);
-      if (requestLimitError) {
-        return NextResponse.json(
-          { error: 'RequestLimitExceeded', ...requestLimitError },
-          { status: 429 }
-        );
-      }
-   
       // Check if we should skip auto-search (for interactive search)
       const skipAutoSearch = req.nextUrl.searchParams.get('skipAutoSearch') === 'true';
-   
+      
       // Check if request needs approval
       let needsApproval = false;
       let shouldTriggerSearch = !skipAutoSearch;
-
+  
       // Fetch user with autoApproveRequests setting
       const user = await prisma.user.findUnique({
         where: { id: req.user.id },
@@ -343,11 +339,20 @@ export async function POST(request: NextRequest) {
           autoApproveRequests: true,
         },
       });
-
+  
       if (!user) {
         return NextResponse.json(
           { error: 'UserNotFound', message: 'User not found' },
           { status: 404 }
+        );
+      }
+  
+      // Check request limit (admin users always have unlimited requests)
+      const requestLimitError = await checkRequestLimit(req.user.id, user.role as 'admin' | 'user');
+      if (requestLimitError) {
+        return NextResponse.json(
+          { error: 'RequestLimitExceeded', ...requestLimitError },
+          { status: 429 }
         );
       }
 

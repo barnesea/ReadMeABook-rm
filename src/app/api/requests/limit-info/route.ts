@@ -21,6 +21,18 @@ export async function GET(request: NextRequest) {
       }
 
       const userId = req.user.id;
+      const role = req.user.role;
+
+      // Admin users always have unlimited requests
+      if (role === 'admin') {
+        return NextResponse.json({
+          count: 0,
+          periodDays: 0,
+          requestsMade: 0,
+          resetAt: new Date().toISOString(),
+          isUnlimited: true,
+        });
+      }
 
       // Get user's request limit settings
       const user = await prisma.user.findUnique({
@@ -60,7 +72,7 @@ export async function GET(request: NextRequest) {
       });
 
       // Calculate reset time based on the oldest request
-      const resetAt = oldestRequest 
+      const resetAt = oldestRequest
         ? new Date(oldestRequest.createdAt.getTime() + periodDays * 24 * 60 * 60 * 1000)
         : new Date(Date.now() + periodDays * 24 * 60 * 60 * 1000);
 
@@ -81,6 +93,7 @@ export async function GET(request: NextRequest) {
         periodDays,
         requestsMade,
         resetAt: resetAt.toISOString(),
+        isUnlimited: false,
       });
     } catch (error) {
       logger.error('Failed to fetch request limit info', { error: error instanceof Error ? error.message : String(error) });

@@ -144,6 +144,11 @@ export async function GET(request: NextRequest) {
         // Kindle compatibility fixes: default false
         kindleFixEnabled: configMap.get('ebook_kindle_fix_enabled') === 'true',
       },
+      requestLimits: {
+        enabled: configMap.get('request_limit.enabled') === 'true',
+        count: parseInt(configMap.get('request_limit.count') || '5', 10),
+        period: parseInt(configMap.get('request_limit.period') || '7', 10),
+      },
       general: {
         appName: configMap.get('app_name') || 'ReadMeABook',
         allowRegistrations: configMap.get('allow_registrations') === 'true',

@@ -347,7 +347,12 @@ export default function AdminSettings() {
           {activeTab === 'notifications' && <NotificationsTab />}
        
           {/* Request Limits Tab */}
-          {activeTab === 'request-limits' && <RequestLimitsTab />}
+          {activeTab === 'request-limits' && (
+            <RequestLimitsTab
+              settings={settings.requestLimits}
+              onChange={(requestLimits) => setSettings({ ...settings, requestLimits })}
+            />
+          )}
        
           {/* Save Button (only for tabs that save through main page) */}
           {activeTab !== 'ebook' && activeTab !== 'bookdate' && activeTab !== 'notifications' && (

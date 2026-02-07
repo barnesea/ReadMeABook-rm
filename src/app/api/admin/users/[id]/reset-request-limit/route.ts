@@ -6,10 +6,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
-import { getConfigService } from '@/lib/services/config.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Admin.Users.ResetLimit');
+
+/**
+ * Calculate the time remaining until the request limit resets
+ */
+function formatTimeUntilReset(resetAt: Date): string {
+  const now = new Date().getTime();
+  const resetTime = resetAt.getTime();
+  const diff = resetTime - now;
+
+  if (diff <= 0) {
+    return 'Now';
+  }
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
+  return `${hours}h ${minutes}m`;
+}
 
 export async function POST(
   request: NextRequest,
@@ -28,6 +49,9 @@ export async function POST(
             plexUsername: true,
             authProvider: true,
             deletedAt: true,
+            requestLimitEnabled: true,
+            requestLimitCount: true,
+            requestLimitPeriod: true,
           },
         });
 
@@ -46,23 +70,27 @@ export async function POST(
           );
         }
 
-        // Get current request limit config
-        const configService = getConfigService();
-        const requestLimitConfig = await configService.getRequestLimitConfig();
+        // Determine the period to use (per-user or global default)
+        const periodDays = targetUser.requestLimitEnabled && targetUser.requestLimitPeriod > 0
+          ? targetUser.requestLimitPeriod
+          : 7;
+        const count = targetUser.requestLimitEnabled && targetUser.requestLimitCount > 0
+          ? targetUser.requestLimitCount
+          : 5;
 
-        if (!requestLimitConfig.enabled || requestLimitConfig.count <= 0 || requestLimitConfig.period <= 0) {
+        // If limits are disabled or set to 0, return early
+        if (!targetUser.requestLimitEnabled || count <= 0 || periodDays <= 0) {
           return NextResponse.json(
-            { error: 'Request limits are not enabled' },
+            { error: 'Request limits are not enabled for this user' },
             { status: 400 }
           );
         }
 
-        const { period: periodDays } = requestLimitConfig;
         const periodMs = periodDays * 24 * 60 * 60 * 1000;
         const windowStart = new Date(Date.now() - periodMs);
 
-        // Find the oldest request in the current window
-        const oldestRequest = await prisma.request.findFirst({
+        // Find all requests in the current window
+        const requestsInWindow = await prisma.request.findMany({
           where: {
             userId: id,
             createdAt: { gte: windowStart },
@@ -73,35 +101,39 @@ export async function POST(
           select: { id: true, createdAt: true },
         });
 
-        if (!oldestRequest) {
+        if (requestsInWindow.length === 0) {
           return NextResponse.json(
             { success: true, message: 'No requests in current window to reset' },
             { status: 200 }
           );
         }
 
-        // Calculate the new window start time
-        // This effectively resets the window by moving the start time
-        // We need to update the createdAt of all requests in the window
-        // But since we can't update createdAt, we'll use a different approach:
-        // We'll add a new field to track when the limit was last reset
-        // For now, we'll just return a message that the limit is reset
-        // The actual reset will happen when the user makes their next request
+        // Calculate the new window start time by moving it back by the period
+        // This effectively resets the limit by moving all requests outside the window
+        const newWindowStart = new Date(Date.now() - periodMs * 2);
 
-        // Actually, the rolling window is based on createdAt, so we can't really "reset" it
-        // without changing the createdAt of requests (which we shouldn't do)
-        // Instead, we'll just log that the admin reset the limit
-        // The user will need to wait for the window to naturally expire
+        // Update all requests in the window to move them outside the window
+        await prisma.request.updateMany({
+          where: {
+            id: { in: requestsInWindow.map((r) => r.id) },
+          },
+          data: {
+            createdAt: newWindowStart,
+          },
+        });
 
-        logger.info('Request limit reset requested', {
+        logger.info('Request limit reset completed', {
           userId: id,
           username: targetUser.plexUsername,
-          oldestRequest: oldestRequest.id,
-          windowStart: windowStart.toISOString(),
+          requestsReset: requestsInWindow.length,
+          windowStart: newWindowStart.toISOString(),
         });
 
         return NextResponse.json(
-          { success: true, message: 'Request limit window reset. The user can now make new requests.' },
+          { 
+            success: true, 
+            message: `Request limit reset. ${requestsInWindow.length} request(s) moved outside the window.`,
+          },
           { status: 200 }
         );
       } catch (error) {

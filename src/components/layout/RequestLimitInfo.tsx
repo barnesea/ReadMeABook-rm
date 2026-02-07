@@ -8,6 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { RMABLogger } from '@/lib/utils/logger';
+import { formatTimeUntil } from '@/lib/utils/time';
 
 const logger = RMABLogger.create('RequestLimitInfo');
 
@@ -16,6 +17,7 @@ interface RequestLimitInfo {
   periodDays: number;
   requestsMade: number;
   resetAt: string;
+  isUnlimited: boolean;
 }
 
 export function RequestLimitInfo() {
@@ -33,25 +35,10 @@ export function RequestLimitInfo() {
   }, [user]);
 
   useEffect(() => {
-    if (limitInfo) {
+    if (limitInfo && !limitInfo.isUnlimited) {
       const updateTimer = () => {
-        const now = new Date().getTime();
-        const resetTime = new Date(limitInfo.resetAt).getTime();
-        const diff = resetTime - now;
-
-        if (diff <= 0) {
-          setTimeUntilReset('Now');
-        } else {
-          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-          
-          if (days > 0) {
-            setTimeUntilReset(`${days}d ${hours}h ${minutes}m`);
-          } else {
-            setTimeUntilReset(`${hours}h ${minutes}m`);
-          }
-        }
+        const resetAt = new Date(limitInfo.resetAt);
+        setTimeUntilReset(formatTimeUntil(resetAt));
       };
 
       updateTimer();
@@ -84,6 +71,22 @@ export function RequestLimitInfo() {
 
   if (!user || !limitInfo) {
     return null;
+  }
+
+  // Admin users have unlimited requests
+  if (limitInfo.isUnlimited) {
+    return (
+      <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+        <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-medium text-green-700 dark:text-green-300">
+            Unlimited Requests
+          </span>
+        </div>
+      </div>
+    );
   }
 
   const { count, periodDays, requestsMade } = limitInfo;
