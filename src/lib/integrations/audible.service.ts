@@ -513,6 +513,62 @@ export class AudibleService {
   }
 
   /**
+   * Get all editions/versions of an audiobook
+   * Searches Audible for all versions of the same title
+   * Returns unique versions by narrator
+   */
+  async getAudiobookEditions(asin: string): Promise<AudibleAudiobook[]> {
+    await this.initialize();
+
+    try {
+      logger.info(`Fetching editions for ASIN ${asin}...`);
+
+      // First get the main book details to get the title
+      const mainBook = await this.getAudiobookDetails(asin);
+      if (!mainBook) {
+        logger.warn(`Could not fetch main book details for ASIN ${asin}`);
+        return [];
+      }
+
+      logger.info(`Searching for editions of "${mainBook.title}"...`);
+
+      // Search Audible for all versions of this title
+      const searchResults = await this.search(mainBook.title);
+
+      // Collect unique versions by narrator
+      const editions: AudibleAudiobook[] = [];
+      const seenNarrators = new Set<string>();
+
+      for (const book of searchResults.results) {
+        if (!book.narrator) continue;
+
+        const narratorKey = book.narrator.toLowerCase().trim();
+
+        // Only add if we don't have this narrator yet
+        if (!seenNarrators.has(narratorKey)) {
+          seenNarrators.add(narratorKey);
+          editions.push({
+            asin: book.asin,
+            title: book.title || '',
+            author: book.author || '',
+            narrator: book.narrator,
+            coverArtUrl: book.coverArtUrl,
+            durationMinutes: book.durationMinutes,
+            rating: book.rating,
+          });
+          logger.debug(`Found edition: "${book.title}" narrated by ${book.narrator} (ASIN: ${book.asin})`);
+        }
+      }
+
+      logger.info(`Found ${editions.length} unique editions`);
+      return editions;
+    } catch (error) {
+      logger.error(`Failed to fetch editions for ${asin}`, { error: error instanceof Error ? error.message : String(error) });
+      return [];
+    }
+  }
+
+  /**
    * Fetch audiobook details from Audnexus API
    */
   private async fetchFromAudnexus(asin: string): Promise<AudibleAudiobook | null> {

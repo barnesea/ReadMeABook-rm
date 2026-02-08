@@ -11,11 +11,12 @@
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { createPortal } from 'react-dom';
-import { useAudiobookDetails } from '@/lib/hooks/useAudiobooks';
+import { useAudiobookDetails, useSearchAllVersions, Version } from '@/lib/hooks/useAudiobooks';
 import { useCreateRequest, useEbookStatus, useFetchEbookByAsin } from '@/lib/hooks/useRequests';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePreferences } from '@/contexts/PreferencesContext';
 import { InteractiveTorrentSearchModal } from '@/components/requests/InteractiveTorrentSearchModal';
+import { NarratorSelectionModal } from '@/components/audiobooks/NarratorSelectionModal';
 
 interface AudiobookDetailsModalProps {
   asin: string;
@@ -72,6 +73,7 @@ export function AudiobookDetailsModal({
   const { createRequest, isLoading: isRequesting } = useCreateRequest();
   const { ebookStatus, revalidate: revalidateEbookStatus } = useEbookStatus(isOpen && isAvailable ? asin : null);
   const { fetchEbook, isLoading: isFetchingEbook } = useFetchEbookByAsin();
+  const { versions, baseTitle, baseAuthor, isLoading: isSearchingVersions } = useSearchAllVersions(isOpen ? asin : null);
 
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -79,6 +81,7 @@ export function AudiobookDetailsModal({
   const [mounted, setMounted] = useState(false);
   const [showInteractiveSearch, setShowInteractiveSearch] = useState(false);
   const [showInteractiveSearchEbook, setShowInteractiveSearchEbook] = useState(false);
+  const [showNarratorModal, setShowNarratorModal] = useState(false);
   const [asinCopied, setAsinCopied] = useState(false);
 
   const status = getStatusInfo(isAvailable, requestStatus, requestedByUsername);
@@ -106,7 +109,8 @@ export function AudiobookDetailsModal({
     setTimeout(() => setShowToast(false), 3000);
   };
 
-  const handleRequest = async () => {
+  // Direct request - no version search
+  const handleDirectRequest = async () => {
     if (!user || !audiobook) {
       showNotification('Please log in to request audiobooks', 'error');
       return;
@@ -114,6 +118,29 @@ export function AudiobookDetailsModal({
 
     try {
       await createRequest(audiobook);
+      showNotification('Request created!');
+      setTimeout(onClose, 1500);
+      onRequestSuccess?.();
+    } catch (err) {
+      showNotification(err instanceof Error ? err.message : 'Failed to create request', 'error');
+    }
+  };
+
+  // Version search - shows narrator selection modal
+  const handleVersionSearch = async () => {
+    if (!user || !audiobook) {
+      showNotification('Please log in to request audiobooks', 'error');
+      return;
+    }
+
+    setShowNarratorModal(true);
+  };
+
+  const handleNarratorSelect = async (version: Version) => {
+    setShowNarratorModal(false);
+
+    try {
+      await createRequest(version, { narrator: version.narrator });
       showNotification('Request created!');
       setTimeout(onClose, 1500);
       onRequestSuccess?.();
@@ -429,8 +456,8 @@ export function AudiobookDetailsModal({
             style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
           >
             <div className="flex items-center gap-3">
-              {/* Main Action */}
-              <div className="flex-1">
+              {/* Main Action - Direct Request + Version Search */}
+              <div className="flex-1 flex gap-2">
                 {status.type === 'available' ? (
                   <button
                     disabled
@@ -439,21 +466,49 @@ export function AudiobookDetailsModal({
                     In Your Library
                   </button>
                 ) : status.canRequest ? (
-                  <button
-                    onClick={handleRequest}
-                    disabled={isRequesting || !user}
-                    className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isRequesting ? (
-                      <span className="flex items-center justify-center gap-2">
+                  <>
+                    {/* Direct Request Button */}
+                    <button
+                      onClick={handleDirectRequest}
+                      disabled={isRequesting || !user}
+                      className="flex-1 py-3 px-4 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isRequesting ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          Requesting...
+                        </span>
+                      ) : !user ? 'Sign in' : 'Request'}
+                    </button>
+                    {/* Version Search Button */}
+                    <button
+                      onClick={handleVersionSearch}
+                      disabled={isSearchingVersions || !user}
+                      className={`
+                        py-3 px-3 rounded-xl
+                        transition-all disabled:opacity-50 disabled:cursor-not-allowed
+                        ${isSearchingVersions
+                          ? 'bg-white/20 text-white/70 cursor-wait'
+                          : 'bg-white/80 text-gray-900 hover:bg-purple-500 hover:text-white hover:scale-[1.05] hover:shadow-lg hover:shadow-purple-500/25 active:scale-[0.95]'
+                        }
+                      `}
+                      title="Search for all narrator versions"
+                    >
+                      {isSearchingVersions ? (
                         <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        Requesting...
-                      </span>
-                    ) : !user ? 'Sign in to Request' : 'Request Audiobook'}
-                  </button>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      )}
+                    </button>
+                  </>
                 ) : (
                   <button
                     disabled
@@ -592,6 +647,16 @@ export function AudiobookDetailsModal({
         </div>,
         document.body
       )}
+
+      {/* Narrator Selection Modal */}
+      <NarratorSelectionModal
+        isOpen={showNarratorModal}
+        onClose={() => setShowNarratorModal(false)}
+        versions={versions}
+        baseTitle={baseTitle}
+        baseAuthor={baseAuthor}
+        onSelect={handleNarratorSelect}
+      />
     </>
   );
 }

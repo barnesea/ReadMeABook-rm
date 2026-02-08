@@ -84,3 +84,30 @@ export function useAudiobookDetails(asin: string | null) {
     error,
   };
 }
+
+export interface Version {
+  asin: string;
+  title: string;
+  author: string;
+  narrator: string;
+  coverArtUrl?: string;
+  durationMinutes?: number;
+}
+
+export function useSearchAllVersions(asin: string | null) {
+  const endpoint = asin ? `/api/audiobooks/${asin}/versions` : null;
+
+  const { data, error, isLoading } = useSWR(endpoint, authenticatedFetcher, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    dedupingInterval: 0, // Don't cache - always fetch fresh versions
+  });
+
+  return {
+    versions: data?.versions || [],
+    baseTitle: data?.baseTitle || '',
+    baseAuthor: data?.baseAuthor || '',
+    isLoading,
+    error,
+  };
+}

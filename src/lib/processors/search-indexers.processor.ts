@@ -70,10 +70,12 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
     // Get Prowlarr service
     const prowlarr = await getProwlarrService();
 
-    // Build search query (title only - cast wide net, let ranking filter)
-    const searchQuery = audiobook.title;
+    // Build search query (include narrator if specified)
+    const searchQuery = audiobook.narrator
+      ? `${audiobook.title} ${audiobook.narrator}`
+      : audiobook.title;
 
-    logger.info(`Searching for: "${searchQuery}"`);
+    logger.info(`Searching for: "${searchQuery}"${audiobook.narrator ? ` (narrator: ${audiobook.narrator})` : ''}`);
 
     // Search Prowlarr for each group and combine results
     const allResults = [];

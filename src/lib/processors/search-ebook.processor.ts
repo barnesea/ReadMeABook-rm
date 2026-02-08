@@ -256,9 +256,10 @@ async function searchIndexers(
   const prowlarr = await getProwlarrService();
 
   // Build search query (title only - cast wide net, let ranking filter)
+  // Note: Ebook search does NOT include narrator - it searches for the base title
   const searchQuery = audiobook.title;
 
-  logger.info(`Searching for: "${searchQuery}"`);
+  logger.info(`Searching for: "${searchQuery}" (ebook search - narrator excluded)`);
 
   // Search Prowlarr for each group and combine results
   const allResults = [];

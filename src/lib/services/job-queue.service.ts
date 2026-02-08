@@ -42,6 +42,7 @@ export interface SearchIndexersPayload extends JobPayload {
     title: string;
     author: string;
     asin?: string; // Optional ASIN for runtime-based size scoring
+    narrator?: string; // Optional narrator name for version-specific search
   };
 }
 
@@ -107,6 +108,7 @@ export interface SearchEbookPayload extends JobPayload {
     title: string;
     author: string;
     asin?: string; // ASIN for Anna's Archive search (best match)
+    narrator?: string; // Optional narrator name (excluded from ebook search)
   };
   preferredFormat?: string; // epub, pdf, mobi, azw3 (default: from config)
 }
@@ -504,7 +506,7 @@ export class JobQueueService {
   /**
    * Add search indexers job
    */
-  async addSearchJob(requestId: string, audiobook: { id: string; title: string; author: string; asin?: string }): Promise<string> {
+  async addSearchJob(requestId: string, audiobook: { id: string; title: string; author: string; asin?: string; narrator?: string }): Promise<string> {
     return await this.addJob(
       'search_indexers',
       {
