@@ -9,7 +9,7 @@ import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'reorganize_library';
 
 export interface ScheduledJob {
   id: string;
@@ -113,6 +113,13 @@ export class SchedulerService {
         type: 'monitor_rss_feeds' as ScheduledJobType,
         schedule: '*/15 * * * *', // Every 15 minutes
         enabled: true, // Enable by default
+        payload: {},
+      },
+      {
+        name: 'Reorganize Library',
+        type: 'reorganize_library' as ScheduledJobType,
+        schedule: '0 2 * * *', // Daily at 2 AM
+        enabled: false, // Disabled by default
         payload: {},
       },
     ];
@@ -313,6 +320,9 @@ export class SchedulerService {
         break;
       case 'monitor_rss_feeds':
         bullJobId = await this.triggerMonitorRssFeeds(job);
+        break;
+      case 'reorganize_library':
+        bullJobId = await this.triggerReorganizeLibrary(job);
         break;
       default:
         throw new Error(`Unknown job type: ${job.type}`);
@@ -577,6 +587,13 @@ export class SchedulerService {
    */
   private async triggerCleanupSeededTorrents(job: any): Promise<string> {
     return await this.jobQueue.addCleanupSeededTorrentsJob(job.id);
+  }
+
+  /**
+   * Trigger reorganize library job
+   */
+  private async triggerReorganizeLibrary(job: any): Promise<string> {
+    return await this.jobQueue.addReorganizeLibraryJob(job.payload?.libraryId, job.id);
   }
 }
 

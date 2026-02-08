@@ -25,6 +25,7 @@ export type JobType =
   | 'cleanup_seeded_torrents'
   | 'monitor_rss_feeds'
   | 'send_notification'
+  | 'reorganize_library'
   // Ebook-specific job types
   | 'search_ebook'
   | 'start_direct_download'
@@ -97,6 +98,11 @@ export interface RetryFailedImportsPayload extends JobPayload {
 }
 
 export interface CleanupSeededTorrentsPayload extends JobPayload {
+  scheduledJobId?: string;
+}
+
+export interface ReorganizeLibraryPayload extends JobPayload {
+  libraryId?: string;
   scheduledJobId?: string;
 }
 
@@ -345,6 +351,13 @@ export class JobQueueService {
     this.queue.process('send_notification', 5, async (job: BullJob<SendNotificationPayload>) => {
       const { processSendNotification } = await import('../processors/send-notification.processor');
       return await processSendNotification(job.data);
+    });
+
+    // Reorganize library processor
+    this.queue.process('reorganize_library', 1, async (job: BullJob<ReorganizeLibraryPayload>) => {
+      const { processReorganizeLibrary } = await import('../processors/reorganize-library.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'reorganize_library');
+      return await processReorganizeLibrary(payloadWithJobId);
     });
 
     // Ebook-specific processors
@@ -975,6 +988,22 @@ export class JobQueueService {
    */
   async getRepeatableJobs(): Promise<any[]> {
     return await this.queue.getRepeatableJobs();
+  }
+
+  /**
+   * Add reorganize library job
+   */
+  async addReorganizeLibraryJob(libraryId?: string, scheduledJobId?: string): Promise<string> {
+    return await this.addJob(
+      'reorganize_library',
+      {
+        libraryId,
+        scheduledJobId,
+      } as ReorganizeLibraryPayload,
+      {
+        priority: 5, // Medium priority
+      }
+    );
   }
 }
 
