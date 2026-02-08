@@ -1,22 +1,99 @@
-            - name: Fork Sync
-  # You may pin to the exact commit or the version.
-  # uses: tgymnich/fork-sync@0cc6ac48fd51415e7c34e5b8823021bc952a5f5f
-  uses: tgymnich/fork-sync@v1.2.1
-  with:
-    # Owner of the forked repository
-    owner: # optional
-    # Token for the github API
-    github_token: 
-    # Branch to track
-    head: main # optional, default is master
-    # Branch to keep updated
-    base: main # optional, default is master
-    # Merge method to use
-    merge_method: # optional, default is merge
-    # The title of the pull request
-    pr_title: # optional, default is Fork Sync
-    # The message in the pull request
-    pr_message: # optional
-    # ignore Exceptions
-    ignore_fail: # optional
-          
+name: Sync fork (smart, every 30m)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *" # every 30 minutes
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-fork
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      # upstream repo you gave me
+      UPSTREAM_REPO: kikootwo/ReadMeABook
+      # target branch in your fork to update; change if your fork uses a different branch
+      TARGET_BRANCH: main
+
+    steps:
+      - name: Install jq (debug safe)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+      - name: Detect upstream default branch
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com"
+          auth="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
+          accept="Accept: application/vnd.github+json"
+
+          echo "Querying upstream repo metadata: ${UPSTREAM_REPO}"
+          default_branch=$(curl -fsSL -H "$auth" -H "$accept" "$api/repos/${UPSTREAM_REPO}" | jq -r .default_branch)
+          if [[ -z "$default_branch" || "$default_branch" == "null" ]]; then
+            echo "Failed to detect default branch for ${UPSTREAM_REPO}" >&2
+            exit 1
+          fi
+          echo "upstream_branch=${default_branch}" >> "$GITHUB_OUTPUT"
+          echo "Detected upstream default branch: $default_branch"
+
+      - name: Check if upstream changed
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          api="https://api.github.com"
+          auth="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
+          accept="Accept: application/vnd.github+json"
+
+          upstream_branch="${{ steps.detect.outputs.upstream_branch }}"
+          upstream_sha=$(
+            curl -fsSL -H "$auth" -H "$accept" \
+              "$api/repos/${UPSTREAM_REPO}/commits/${upstream_branch}" \
+            | jq -r .sha
+          )
+
+          fork_repo="${{ github.repository }}"
+          target_branch="${{ env.TARGET_BRANCH }}"
+          # If the target branch does not exist in the fork, treat as changed (so sync can create/update it)
+          fork_sha_resp=$(curl -fsSL -o /dev/null -w "%{http_code}" -H "$auth" -H "$accept" \
+              "$api/repos/${fork_repo}/commits/${target_branch" 2>/dev/null || true)
+
+          # Use a safe attempt to fetch the fork SHA (catch if branch missing)
+          fork_sha=$(
+            curl -fsSL -H "$auth" -H "$accept" \
+              "$api/repos/${fork_repo}/commits/${target_branch}" 2>/dev/null | jq -r .sha || true
+          )
+
+          echo "Upstream (${UPSTREAM_REPO}@${upstream_branch}): ${upstream_sha}"
+          if [[ -z "$fork_sha" || "$fork_sha" == "null" ]]; then
+            echo "Fork (${fork_repo}@${target_branch}) does not exist or has no commits on that branch."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Fork     (${fork_repo}@${target_branch}): ${fork_sha}"
+
+          if [[ "$upstream_sha" == "$fork_sha" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes detected. Skipping sync."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected. Will sync."
+          fi
+
+      - name: Sync fork from upstream
+        if: steps.check.outputs.changed == 'true'
+        uses: tgymnich/fork-sync@v1.2.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_branch: ${{ steps.detect.outputs.upstream_branch }}
+          target_branch: ${{ env.TARGET_BRANCH }}
