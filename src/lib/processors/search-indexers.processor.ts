@@ -71,6 +71,7 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
     const prowlarr = await getProwlarrService();
 
     // Build search query (include narrator if specified)
+    // Only add narrator if it's not already in the title (to avoid duplication)
     const searchQuery = audiobook.narrator
       ? `${audiobook.title} ${audiobook.narrator}`
       : audiobook.title;

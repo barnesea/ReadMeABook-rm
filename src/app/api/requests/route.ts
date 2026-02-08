@@ -26,6 +26,7 @@ const CreateRequestSchema = z.object({
     releaseDate: z.string().optional(),
     rating: z.number().nullable().optional(),
   }),
+  narrator: z.string().optional(),
 });
 
 /**
@@ -169,7 +170,10 @@ export async function POST(request: NextRequest) {
       }
 
       const body = await req.json();
-      const { audiobook } = CreateRequestSchema.parse(body);
+      const { audiobook, narrator: requestNarrator } = CreateRequestSchema.parse(body);
+      
+      // Use narrator from request body if provided, otherwise use narrator from audiobook object
+      const narrator = requestNarrator || audiobook.narrator;
 
       // First check: Is there an existing audiobook request in 'downloaded' or 'available' status?
       // This catches the gap where files are organized but Plex hasn't scanned yet
@@ -210,7 +214,7 @@ export async function POST(request: NextRequest) {
         asin: audiobook.asin,
         title: audiobook.title,
         author: audiobook.author,
-        narrator: audiobook.narrator,
+        narrator,
       });
 
       if (plexMatch) {
@@ -269,7 +273,7 @@ export async function POST(request: NextRequest) {
             audibleAsin: audiobook.asin,
             title: audiobook.title,
             author: audiobook.author,
-            narrator: audiobook.narrator,
+            narrator,
             description: audiobook.description,
             coverArtUrl: audiobook.coverArtUrl,
             year,

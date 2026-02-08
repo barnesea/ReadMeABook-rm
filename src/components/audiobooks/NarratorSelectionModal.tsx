@@ -9,6 +9,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchTorrents } from '@/lib/hooks/useRequests';
+import { InteractiveTorrentSearchModal } from '@/components/requests/InteractiveTorrentSearchModal';
 
 interface Version {
   asin: string;
@@ -51,6 +53,8 @@ export function NarratorSelectionModal({
   onSelect,
 }: NarratorSelectionModalProps) {
   const [mounted, setMounted] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<Version | null>(null);
+  const [showInteractiveSearch, setShowInteractiveSearch] = useState(false);
 
   // Mount tracking for portal
   useEffect(() => {
@@ -75,6 +79,16 @@ export function NarratorSelectionModal({
 
   const handleSelect = (version: Version) => {
     onSelect(version);
+  };
+
+  const handleInteractiveSearch = (version: Version) => {
+    setSelectedVersion(version);
+    setShowInteractiveSearch(true);
+  };
+
+  const handleInteractiveSearchClose = () => {
+    setShowInteractiveSearch(false);
+    setSelectedVersion(null);
   };
 
   if (!isOpen || !mounted) return null;
@@ -166,12 +180,23 @@ export function NarratorSelectionModal({
                             {version.author}
                           </p>
                         </div>
-                        <button
-                          onClick={() => handleSelect(version)}
-                          className="flex-shrink-0 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all rounded-lg whitespace-nowrap"
-                        >
-                          Select
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleSelect(version)}
+                            className="flex-shrink-0 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all rounded-lg whitespace-nowrap"
+                          >
+                            Select
+                          </button>
+                          <button
+                            onClick={() => handleInteractiveSearch(version)}
+                            className="flex-shrink-0 px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 active:scale-95 transition-all rounded-lg whitespace-nowrap"
+                            title="Interactive search with this narrator"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Narrator and Duration */}
@@ -217,5 +242,58 @@ export function NarratorSelectionModal({
     </div>
   );
 
-  return createPortal(modalContent, document.body);
+  return (
+    <>
+      {createPortal(modalContent, document.body)}
+      {showInteractiveSearch && selectedVersion && (
+        <InteractiveSearchModal
+          isOpen={showInteractiveSearch}
+          onClose={handleInteractiveSearchClose}
+          version={selectedVersion}
+          baseTitle={baseTitle}
+          baseAuthor={baseAuthor}
+        />
+      )}
+    </>
+  );
+}
+
+// Helper component to render the interactive search modal
+function InteractiveSearchModal({
+  isOpen,
+  onClose,
+  version,
+  baseTitle,
+  baseAuthor,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  version: Version;
+  baseTitle: string;
+  baseAuthor: string;
+}) {
+  // Build search query with narrator
+  const searchTitle = version.narrator
+    ? `${version.title} ${version.narrator}`
+    : version.title;
+
+  return (
+    <InteractiveTorrentSearchModal
+      isOpen={isOpen}
+      onClose={onClose}
+      audiobook={{
+        title: searchTitle,
+        author: version.author,
+      }}
+      fullAudiobook={{
+        asin: version.asin,
+        title: version.title,
+        author: version.author,
+        narrator: version.narrator,
+        coverArtUrl: version.coverArtUrl,
+        durationMinutes: version.durationMinutes,
+      }}
+      onSuccess={onClose}
+    />
+  );
 }
