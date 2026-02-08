@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: sync-fork
@@ -95,5 +96,7 @@ jobs:
         uses: tgymnich/fork-sync@v1.2.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          upstream_branch: ${{ steps.detect.outputs.upstream_branch }}
-          target_branch: ${{ env.TARGET_BRANCH }}
+          owner: kikootwo
+          head: ${{ steps.detect.outputs.upstream_branch }}
+          base: ${{ env.TARGET_BRANCH }}
+          merge_method: merge
