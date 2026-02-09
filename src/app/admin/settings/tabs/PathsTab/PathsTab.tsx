@@ -19,7 +19,7 @@ interface PathsTabProps {
 }
 
 export function PathsTab({ paths, onChange, onValidationChange }: PathsTabProps) {
-  const { testing, testResult, updatePath, testPaths } = usePathsSettings({
+  const { testing, testResult, reorganizationResult, updatePath, testPaths, runReorganization } = usePathsSettings({
     paths,
     onChange,
     onValidationChange,
@@ -226,24 +226,64 @@ export function PathsTab({ paths, onChange, onValidationChange }: PathsTabProps)
         </div>
       </div>
 
-      {/* Test Paths Button */}
+      {/* Library Reorganization Toggle */}
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-start gap-4">
+          <input
+            type="checkbox"
+            id="library-reorganization-settings"
+            checked={paths.libraryReorganizationEnabled || false}
+            onChange={(e) => updatePath('libraryReorganizationEnabled', e.target.checked)}
+            className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label
+              htmlFor="library-reorganization-settings"
+              className="block text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+            >
+              Automatically reorganize manually added books
+            </label>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              Automatically reorganize books manually added to your library to match the configured
+              organization template. Runs on a schedule (default: daily at 2 AM).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Scan Interval Input */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Reorganization Scan Interval (minutes)
+        </label>
+        <Input
+          type="number"
+          value={paths.libraryReorganizationScanInterval || 1440}
+          onChange={(e) => updatePath('libraryReorganizationScanInterval', parseInt(e.target.value, 10))}
+          placeholder="1440 (24 hours)"
+          className="font-mono"
+        />
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          How often to check for manually added books (minimum: 60 minutes)
+        </p>
+      </div>
+
+      {/* Run Reorganization Button */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
         <Button
-          onClick={testPaths}
-          loading={testing}
-          disabled={!paths.downloadDir || !paths.mediaDir}
-          variant="outline"
+          onClick={runReorganization}
+          variant="primary"
           className="w-full"
         >
-          Test Paths
+          Run Reorganization Now
         </Button>
-        {testResult && (
+        {reorganizationResult && (
           <div className={`mt-3 p-3 rounded-lg text-sm ${
-            testResult.success
+            reorganizationResult.success
               ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200'
               : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
           }`}>
-            {testResult.message}
+            {reorganizationResult.message}
           </div>
         )}
       </div>

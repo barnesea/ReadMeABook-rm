@@ -268,6 +268,32 @@ export class ConfigurationService {
   }
 
   /**
+   * Get library reorganization configuration
+   */
+  async getLibraryReorganizationConfig(): Promise<{
+    enabled: boolean;
+    scanIntervalMinutes: number;
+  }> {
+    const enabled = await this.get('library_reorganization.enabled');
+    const scanInterval = await this.get('library_reorganization.scan_interval_minutes');
+
+    return {
+      enabled: enabled === 'true',
+      scanIntervalMinutes: parseInt(scanInterval || '1440', 10), // Default: 24 hours
+    };
+  }
+
+  /**
+   * Set library reorganization configuration
+   */
+  async setLibraryReorganizationConfig(enabled: boolean, scanIntervalMinutes: number): Promise<void> {
+    await this.setMany([
+      { key: 'library_reorganization.enabled', value: enabled ? 'true' : 'false', category: 'library', description: 'Automatically reorganize manually added books to match template' },
+      { key: 'library_reorganization.scan_interval_minutes', value: scanIntervalMinutes.toString(), category: 'library', description: 'How often to check for manually added books (in minutes)' },
+    ]);
+  }
+
+  /**
    * Clear the cache for a specific key or all keys
    */
   clearCache(key?: string): void {

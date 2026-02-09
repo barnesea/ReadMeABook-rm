@@ -1,6 +1,6 @@
 # Library Reorganization Feature
 
-**Status:** 🏗️ In Progress
+**Status:** ✅ Implemented
 
 Feature to reorganize manually added books (books in library not created by RMAB requests) to match the configured audiobook organization template.
 
@@ -14,6 +14,7 @@ When users manually add audiobooks to their library (Plex or Audiobookshelf) out
 - **Scheduled task** - Runs automatically (disabled by default)
 - **Template-based** - Uses `audiobook_path_template` config (dynamic, configurable)
 - **Non-destructive** - Copies files to new location, keeps originals until verified
+- **Admin UI** - Configure and trigger reorganization from Paths tab in admin settings
 
 ## Configuration
 
@@ -40,6 +41,18 @@ When users manually add audiobooks to their library (Plex or Audiobookshelf) out
 
 ## API Endpoints
 
+### GET /api/admin/library/reorganize
+Get reorganization status and configuration.
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "scanIntervalMinutes": 1440,
+  "lastRunAt": "2024-01-01T00:00:00Z"
+}
+```
+
 ### POST /api/admin/library/reorganize
 Trigger reorganization job immediately.
 
@@ -59,35 +72,30 @@ Trigger reorganization job immediately.
 }
 ```
 
-### GET /api/admin/library/reorganize/status
-Get reorganization status and statistics.
-
-**Response:**
-```json
-{
-  "enabled": true,
-  "scanIntervalMinutes": 1440,
-  "lastRunAt": "2024-01-01T00:00:00Z",
-  "lastRunStats": {
-    "totalBooks": 100,
-    "reorganized": 25,
-    "skipped": 75,
-    "errors": 0
-  }
-}
-```
-
 ## Database Changes
 
-No database migration needed. Uses existing `plex_library.file_path` column.
+| Column | Type | Description |
+|--------|------|-------------|
+| `last_reorganized_at` | TIMESTAMP | When book was last reorganized |
+| `reorganized_by` | UUID | Job ID that performed reorganization |
+
+## Admin Settings UI
+
+### Paths Tab
+- **Toggle:** "Automatically reorganize manually added books"
+- **Input:** "Reorganization Scan Interval (minutes)"
+- **Button:** "Run Reorganization Now"
 
 ## Related Files
 
 - `src/lib/processors/reorganize-library.processor.ts` - Job processor
 - `src/lib/services/job-queue.service.ts` - Job queue (added `reorganize_library` type)
 - `src/lib/services/scheduler.service.ts` - Scheduler (added default job)
+- `src/lib/services/config.service.ts` - Configuration service
 - `src/lib/utils/file-organizer.ts` - File organization utilities
-- `src/app/admin/settings/tabs/PathsTab/PathsTab.tsx` - Settings UI (needs update)
+- `src/app/api/admin/library/reorganize/route.ts` - API endpoint
+- `src/app/admin/settings/tabs/PathsTab/PathsTab.tsx` - Settings UI
+- `src/app/admin/settings/tabs/PathsTab/usePathsSettings.ts` - Settings hook
 
 ## Implementation Notes
 
@@ -96,3 +104,4 @@ No database migration needed. Uses existing `plex_library.file_path` column.
 - Updates `plex_library.file_path` after successful copy
 - Triggers library scan if `trigger_scan_after_import` is enabled
 - Logs all operations with job-specific logger
+- Configuration saved to database with category: 'library'

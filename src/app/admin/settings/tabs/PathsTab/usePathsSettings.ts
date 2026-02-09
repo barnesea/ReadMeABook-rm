@@ -17,11 +17,12 @@ interface UsePathsSettingsProps {
 export function usePathsSettings({ paths, onChange, onValidationChange }: UsePathsSettingsProps) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [reorganizationResult, setReorganizationResult] = useState<{ success: boolean; message: string } | null>(null);
 
   /**
    * Update a single path field
    */
-  const updatePath = (field: keyof PathsSettings, value: string | boolean) => {
+  const updatePath = (field: keyof PathsSettings, value: string | boolean | number) => {
     onChange({ ...paths, [field]: value });
     onValidationChange(false);
   };
@@ -80,10 +81,46 @@ export function usePathsSettings({ paths, onChange, onValidationChange }: UsePat
     }
   };
 
+  /**
+   * Run library reorganization
+   */
+  const runReorganization = async () => {
+    try {
+      const response = await fetch('/api/admin/library/reorganize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          libraryId: undefined, // Will use default library
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setReorganizationResult({
+          success: true,
+          message: `Reorganization job queued successfully (Job ID: ${data.jobId})`,
+        });
+      } else {
+        setReorganizationResult({
+          success: false,
+          message: data.error || 'Failed to trigger reorganization',
+        });
+      }
+    } catch (error) {
+      setReorganizationResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to trigger reorganization',
+      });
+    }
+  };
+
   return {
     testing,
     testResult,
+    reorganizationResult,
     updatePath,
     testPaths,
+    runReorganization,
   };
 }

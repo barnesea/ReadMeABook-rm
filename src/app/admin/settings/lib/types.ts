@@ -100,6 +100,8 @@ export interface PathsSettings {
   audiobookPathTemplate?: string;
   metadataTaggingEnabled: boolean;
   chapterMergingEnabled: boolean;
+  libraryReorganizationEnabled?: boolean;
+  libraryReorganizationScanInterval?: number;
 }
 
 /**
