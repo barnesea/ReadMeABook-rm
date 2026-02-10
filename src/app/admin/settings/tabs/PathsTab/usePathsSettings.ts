@@ -6,6 +6,7 @@
 'use client';
 
 import { useState } from 'react';
+import { fetchWithAuth } from '@/lib/utils/api';
 import type { PathsSettings, TestResult } from '../../lib/types';
 
 interface UsePathsSettingsProps {
@@ -34,7 +35,7 @@ export function usePathsSettings({ paths, onChange, onValidationChange }: UsePat
     setTestResult(null);
 
     try {
-      const response = await fetch('/api/setup/test-paths', {
+      const response = await fetchWithAuth('/api/setup/test-paths', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

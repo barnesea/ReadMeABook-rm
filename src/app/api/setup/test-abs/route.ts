@@ -4,10 +4,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireSetupIncomplete } from '@/lib/middleware/auth';
+import { requireSetupIncompleteOrAdmin } from '@/lib/middleware/auth';
 
 export async function POST(request: NextRequest) {
-  return requireSetupIncomplete(request, async (req) => {
+  return requireSetupIncompleteOrAdmin(request, async (req) => {
   try {
     const { serverUrl, apiToken } = await req.json();
 

@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
-import { requireSetupIncomplete } from '@/lib/middleware/auth';
+import { requireSetupIncompleteOrAdmin } from '@/lib/middleware/auth';
 import { RMABLogger } from '@/lib/utils/logger';
 import { validateTemplate, generateMockPreviews } from '@/lib/utils/path-template.util';
 
@@ -46,7 +46,7 @@ async function testPath(dirPath: string): Promise<boolean> {
 }
 
 export async function POST(request: NextRequest) {
-  return requireSetupIncomplete(request, async (req) => {
+  return requireSetupIncompleteOrAdmin(request, async (req) => {
   try {
     const { downloadDir, mediaDir, audiobookPathTemplate } = await req.json();
 
