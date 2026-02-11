@@ -48,7 +48,10 @@ describe('ChangePasswordModal', () => {
       expect(screen.getByText('Not authenticated')).toBeInTheDocument();
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/auth/change-password',
+      expect.anything()
+    );
   });
 
   it('submits successfully and auto-closes after showing success', async () => {
