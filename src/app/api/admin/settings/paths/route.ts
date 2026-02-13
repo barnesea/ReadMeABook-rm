@@ -15,7 +15,7 @@ export async function PUT(request: NextRequest) {
   return requireAuth(request, async (req: AuthenticatedRequest) => {
     return requireAdmin(req, async () => {
       try {
-        const { downloadDir, mediaDir, audiobookPathTemplate, metadataTaggingEnabled, chapterMergingEnabled } = await request.json();
+        const { downloadDir, mediaDir, audiobookPathTemplate, ebookPathTemplate, metadataTaggingEnabled, chapterMergingEnabled } = await request.json();
 
         if (!downloadDir || !mediaDir) {
           return NextResponse.json(
@@ -59,6 +59,20 @@ export async function PUT(request: NextRequest) {
           });
         }
 
+        // Update ebook path template
+        if (ebookPathTemplate !== undefined) {
+          await prisma.configuration.upsert({
+            where: { key: 'ebook_path_template' },
+            update: { value: ebookPathTemplate },
+            create: {
+              key: 'ebook_path_template',
+              value: ebookPathTemplate,
+              category: 'automation',
+              description: 'Template for organizing ebook files in media directory',
+            },
+          });
+        }
+
         // Update metadata tagging setting
         await prisma.configuration.upsert({
           where: { key: 'metadata_tagging_enabled' },
@@ -90,12 +104,21 @@ export async function PUT(request: NextRequest) {
         configService.clearCache('download_dir');
         configService.clearCache('media_dir');
         configService.clearCache('audiobook_path_template');
+        configService.clearCache('ebook_path_template');
         configService.clearCache('metadata_tagging_enabled');
         configService.clearCache('chapter_merging_enabled');
 
-        // Invalidate qBittorrent service singleton to force reload of download_dir
+        // Invalidate all download client singletons to force reload of download_dir
+        const { invalidateDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
+        invalidateDownloadClientManager();
         const { invalidateQBittorrentService } = await import('@/lib/integrations/qbittorrent.service');
         invalidateQBittorrentService();
+        const { invalidateSABnzbdService } = await import('@/lib/integrations/sabnzbd.service');
+        invalidateSABnzbdService();
+        const { invalidateNZBGetService } = await import('@/lib/integrations/nzbget.service');
+        invalidateNZBGetService();
+        const { invalidateTransmissionService } = await import('@/lib/integrations/transmission.service');
+        invalidateTransmissionService();
 
         return NextResponse.json({
           success: true,

@@ -96,6 +96,39 @@ export class EncryptionService {
   }
 
   /**
+   * Check if a value matches the format produced by encrypt().
+   * Validates: 3 colon-separated base64 parts where IV=16 bytes, authTag=16 bytes.
+   */
+  isEncryptedFormat(value: string): boolean {
+    if (typeof value !== 'string') return false;
+
+    const parts = value.split(':');
+    if (parts.length !== 3) return false;
+
+    const [ivBase64, authTagBase64, encryptedBase64] = parts;
+
+    // All parts must be non-empty valid base64
+    const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+    if (!ivBase64 || !authTagBase64 || !encryptedBase64) return false;
+    if (!base64Regex.test(ivBase64) || !base64Regex.test(authTagBase64) || !base64Regex.test(encryptedBase64)) {
+      return false;
+    }
+
+    try {
+      const iv = Buffer.from(ivBase64, 'base64');
+      const authTag = Buffer.from(authTagBase64, 'base64');
+
+      // IV and authTag must decode to exactly the expected byte lengths
+      if (iv.length !== IV_LENGTH) return false;
+      if (authTag.length !== AUTH_TAG_LENGTH) return false;
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Generate a random encryption key (32 bytes)
    * @returns Base64-encoded random key
    */

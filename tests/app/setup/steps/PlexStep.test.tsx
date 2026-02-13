@@ -24,6 +24,7 @@ const PlexHarness = ({
     plexToken: 'token',
     plexLibraryId: '',
     plexTriggerScanAfterImport: false,
+    plexLibraries: [] as { id: string; title: string; type: string }[],
     ...initialState,
   });
 

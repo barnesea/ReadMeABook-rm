@@ -62,6 +62,7 @@ const baseSettings = {
     downloadDir: '',
     mediaDir: '',
     audiobookPathTemplate: '',
+    ebookPathTemplate: '',
     metadataTaggingEnabled: true,
     chapterMergingEnabled: false,
   },

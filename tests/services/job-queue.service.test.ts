@@ -21,6 +21,7 @@ const processorsMock = vi.hoisted(() => ({
   processRetryMissingTorrents: vi.fn().mockResolvedValue('ok'),
   processRetryFailedImports: vi.fn().mockResolvedValue('ok'),
   processCleanupSeededTorrents: vi.fn().mockResolvedValue('ok'),
+  processSyncGoodreadsShelves: vi.fn().mockResolvedValue('ok'),
   // Ebook processors
   processSearchEbook: vi.fn().mockResolvedValue('ok'),
   processStartDirectDownload: vi.fn().mockResolvedValue('ok'),
@@ -113,6 +114,10 @@ vi.mock('@/lib/processors/retry-failed-imports.processor', () => ({
 
 vi.mock('@/lib/processors/cleanup-seeded-torrents.processor', () => ({
   processCleanupSeededTorrents: processorsMock.processCleanupSeededTorrents,
+}));
+
+vi.mock('@/lib/processors/sync-goodreads-shelves.processor', () => ({
+  processSyncGoodreadsShelves: processorsMock.processSyncGoodreadsShelves,
 }));
 
 // Ebook processors
@@ -559,6 +564,7 @@ describe('JobQueueService', () => {
     expect(processorsMock.processRetryMissingTorrents).toHaveBeenCalled();
     expect(processorsMock.processRetryFailedImports).toHaveBeenCalled();
     expect(processorsMock.processCleanupSeededTorrents).toHaveBeenCalled();
+    expect(processorsMock.processSyncGoodreadsShelves).toHaveBeenCalled();
   });
 
   it('returns repeatable jobs from the queue', async () => {

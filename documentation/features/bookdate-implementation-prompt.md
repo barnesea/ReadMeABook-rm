@@ -200,32 +200,23 @@ export async function POST(req: NextRequest) {
         .map((m: any) => ({ id: m.id, name: m.id }));
 
     } else if (provider === 'claude') {
-      // Claude: Hardcoded list (Anthropic doesn't have a models API endpoint)
-      models = [
-        { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5' },
-        { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet' },
-        { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
-        { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-      ];
-
-      // Test connection with a simple API call
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
+      // Claude: Fetch models dynamically from the Anthropic Models API
+      const response = await fetch('https://api.anthropic.com/v1/models?limit=1000', {
         headers: {
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
-          'content-type': 'application/json'
         },
-        body: JSON.stringify({
-          model: 'claude-3-5-haiku-20241022',
-          max_tokens: 10,
-          messages: [{ role: 'user', content: 'Hi' }]
-        })
       });
 
       if (!response.ok) {
         return NextResponse.json({ error: 'Invalid Claude API key' }, { status: 400 });
       }
+
+      const data = await response.json();
+      models = data.data.map((m: any) => ({
+        id: m.id,
+        name: m.display_name || m.id,
+      }));
     } else {
       return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
     }

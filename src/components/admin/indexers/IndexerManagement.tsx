@@ -63,17 +63,14 @@ export function IndexerManagement({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync with parent when configuredIndexers changes
+  // In settings mode, the parent fetches indexers asynchronously and passes them
+  // as initialIndexers after mount. This effect picks up that late-arriving data.
+  // Wizard mode doesn't need this — it initializes correctly via useState above.
   useEffect(() => {
-    if (onIndexersChange) {
-      onIndexersChange(configuredIndexers);
+    if (mode === 'settings') {
+      setConfiguredIndexers(initialIndexers);
     }
-  }, [configuredIndexers, onIndexersChange]);
-
-  // Sync with initialIndexers prop changes
-  useEffect(() => {
-    setConfiguredIndexers(initialIndexers);
-  }, [initialIndexers]);
+  }, [initialIndexers, mode]);
 
   const fetchIndexers = async () => {
     setLoading(true);
@@ -149,17 +146,16 @@ export function IndexerManagement({
   };
 
   const handleSave = (config: SavedIndexerConfig) => {
+    let updated: SavedIndexerConfig[];
     if (modalState.mode === 'add') {
-      // Add new indexer
-      setConfiguredIndexers([...configuredIndexers, config]);
+      updated = [...configuredIndexers, config];
     } else {
-      // Update existing indexer
-      setConfiguredIndexers(
-        configuredIndexers.map((idx) =>
-          idx.id === config.id ? config : idx
-        )
+      updated = configuredIndexers.map((idx) =>
+        idx.id === config.id ? config : idx
       );
     }
+    setConfiguredIndexers(updated);
+    onIndexersChange?.(updated);
   };
 
   const handleDelete = (id: number) => {
@@ -175,9 +171,9 @@ export function IndexerManagement({
 
   const confirmDelete = () => {
     if (deleteModalState.indexerId) {
-      setConfiguredIndexers(
-        configuredIndexers.filter((idx) => idx.id !== deleteModalState.indexerId)
-      );
+      const updated = configuredIndexers.filter((idx) => idx.id !== deleteModalState.indexerId);
+      setConfiguredIndexers(updated);
+      onIndexersChange?.(updated);
     }
   };
 

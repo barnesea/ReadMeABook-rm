@@ -30,13 +30,16 @@ describe('VersionBadge', () => {
   it('renders semantic version from build-time env var', async () => {
     process.env.NEXT_PUBLIC_APP_VERSION = '1.0.0';
     process.env.NEXT_PUBLIC_GIT_COMMIT = 'abcdef1234';
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: async () => ({ version: '1.0.0' }),
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<VersionBadge />);
 
     expect(await screen.findByText('v1.0.0')).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Should not call /api/version since build-time version is available
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/version');
   });
 
   it('falls back to API when build-time version is unavailable', async () => {

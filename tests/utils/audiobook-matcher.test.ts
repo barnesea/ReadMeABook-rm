@@ -6,7 +6,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrismaMock } from '../helpers/prisma';
 
-const prismaMock = createPrismaMock();
+const prismaMock = createPrismaMock() as ReturnType<typeof createPrismaMock> & {
+  reportedIssue: { findMany: ReturnType<typeof vi.fn> };
+};
+
+// Add reportedIssue mock (not yet in shared helper) for getOpenIssuesByAsins
+(prismaMock as any).reportedIssue = { findMany: vi.fn() };
 
 vi.mock('@/lib/db', () => ({
   prisma: prismaMock,
@@ -121,6 +126,9 @@ describe('audiobook-matcher', () => {
         ],
       },
     ]);
+
+    // Mock reported issues (none for this test)
+    prismaMock.reportedIssue.findMany.mockResolvedValue([]);
 
     const { enrichAudiobooksWithMatches } = await import('@/lib/utils/audiobook-matcher');
     const results = await enrichAudiobooksWithMatches(

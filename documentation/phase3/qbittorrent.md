@@ -46,7 +46,7 @@ Free, open-source BitTorrent client with comprehensive Web API.
 - `download_client_url` - qBittorrent Web UI URL (supports HTTP and HTTPS)
 - `download_client_username` - qBittorrent username
 - `download_client_password` - qBittorrent password
-- `download_dir` - Download save path (passed to qBittorrent for all torrents)
+- `download_dir` - Base download save path (joined with per-client `customPath` if configured)
 
 **Optional (SSL/TLS):**
 - `download_client_disable_ssl_verify` - Disable SSL certificate verification for HTTPS (boolean as string "true"/"false", default: "false")
@@ -65,7 +65,8 @@ Validation: All required fields checked before service initialization. Path mapp
 Service uses singleton pattern for performance. When settings change (via admin settings page), singleton is invalidated to force reload:
 - `invalidateQBittorrentService()` called after updating paths or download client settings
 - Forces service to re-read database config on next torrent addition
-- Ensures category save path and credentials are always current
+- Ensures category save path, credentials, and `customPath` resolution are always current
+- Singleton getter resolves `customPath` from client config (consistent with manager's `createService()`)
 
 ## Category Management
 
@@ -73,15 +74,21 @@ Service uses singleton pattern for performance. When settings change (via admin 
 
 **Save Path Synchronization:**
 - Category created/updated on every torrent addition
-- Category save path always synced with `download_dir` config
-- Handles config changes: if user changes `download_dir`, category updates automatically
+- Category save path synced with resolved download path (`download_dir` + per-client `customPath`)
+- Handles config changes: if user changes `download_dir` or `customPath`, category updates automatically
 - Uses both `createCategory` and `editCategory` APIs for reliability
+- Remote path mapping applied after `customPath` resolution (outgoing: local → remote)
 
 **Why Both Create and Edit:**
 1. Create: Ensures category exists (idempotent, won't fail if exists)
 2. Edit: Updates save path to match current config (handles user changing settings)
 
 This prevents issues where category retains old save path after user changes `download_dir` setting.
+
+**Per-Client Custom Path:**
+- If `customPath` is set (e.g., `torrents`), category save path becomes `/downloads/torrents`
+- Remote path mapping applies to the resolved path: `reverseTransform(/downloads/torrents)` → remote equivalent
+- See [download-clients.md](./download-clients.md#per-client-custom-download-path) for details
 
 ## Remote Path Mapping
 
@@ -167,8 +174,22 @@ interface TorrentInfo {
   completionDate: number;
 }
 
-type TorrentState = 'downloading' | 'uploading' | 'stalledDL' |
-  'pausedDL' | 'queuedDL' | 'checkingDL' | 'error' | 'missingFiles';
+type TorrentState =
+  // Core states (*DL = download phase, *UP = upload/post-download phase)
+  | 'downloading' | 'uploading'
+  | 'stalledDL' | 'stalledUP'        // stalledUP → completed (download done)
+  | 'pausedDL' | 'pausedUP'          // pausedUP → completed (download done, paused seeding)
+  | 'queuedDL' | 'queuedUP'          // queuedUP → completed (download done)
+  | 'checkingDL' | 'checkingUP'      // checkingUP → completed (download done, rechecking)
+  | 'error' | 'missingFiles' | 'allocating'
+  // Forced states (user clicked "Force Resume")
+  | 'forcedDL' | 'forcedUP'          // forcedUP → completed (download done)
+  // Metadata fetching
+  | 'metaDL' | 'forcedMetaDL'
+  // qBittorrent v5.0+ (renamed paused → stopped)
+  | 'stoppedDL' | 'stoppedUP'        // stoppedUP → completed (download done)
+  // Other
+  | 'checkingResumeData' | 'moving';
 ```
 
 ## Fixed Issues ✅
@@ -215,6 +236,18 @@ type TorrentState = 'downloading' | 'uploading' | 'stalledDL' |
    - Path mapping now works in both directions: outgoing (RMAB → qBit) and incoming (qBit → RMAB)
    - Service constructor accepts `PathMappingConfig` parameter
    - Singleton loads path mapping config from database
+
+**15. Missing qBittorrent torrent states** - Monitor never detected completion for force-resumed torrents (`forcedDL`/`forcedUP`), causing infinite polling at 100%. Also missing metadata states (`metaDL`/`forcedMetaDL`), qBittorrent v5.x renamed states (`stoppedDL`/`stoppedUP`), and utility states (`checkingResumeData`/`moving`). Fixed by:
+   - Adding all 8 missing states to `TorrentState` type union
+   - Adding mappings to both `mapState()` (legacy) and `mapStateToDownloadStatus()` (unified interface)
+   - `forcedUP` → `seeding`/`completed` enables monitor to trigger import
+   - `stoppedDL` → `paused` ensures qBittorrent v5.x compatibility
+
+**16. pausedUP/stoppedUP mapped as paused instead of completed** - RDT-Client (and qBittorrent after ratio limits) transitions directly to `pausedUP`/`stoppedUP` without passing through `uploading`/`stalledUP`. The `*UP` suffix means the download phase is complete and the torrent is on the upload side. Both states were incorrectly mapped to `'paused'`, causing the monitor to re-schedule checks indefinitely instead of triggering file organization. Fixed by:
+   - `pausedUP` → `seeding` (unified) / `completed` (legacy) — triggers completion in monitor
+   - `stoppedUP` → `seeding` (unified) / `completed` (legacy) — same fix for qBittorrent v5.x
+   - `pausedDL`/`stoppedDL` remain `paused` — download phase genuinely paused
+   - Key insight: any `*UP` state is post-download; any `*DL` state is pre-completion
 
 ## Tech Stack
 

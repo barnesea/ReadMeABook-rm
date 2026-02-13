@@ -100,8 +100,8 @@ describe('substituteTemplate', () => {
     expect(result).toBe('Author/Title/Narrator');
   });
 
-  it('should handle mixed forward and backward slashes', () => {
-    const template = '{author}\\{title}/{narrator}';
+  it('should resolve escaped braces to literal brace characters', () => {
+    const template = '{author}/\\{{narrator}\\}/{title}';
     const variables: TemplateVariables = {
       author: 'Author',
       title: 'Title',
@@ -109,7 +109,7 @@ describe('substituteTemplate', () => {
     };
 
     const result = substituteTemplate(template, variables);
-    expect(result).toBe('Author/Title/Narrator');
+    expect(result).toBe('Author/{Narrator}/Title');
   });
 
   it('should trim dots from path components', () => {
@@ -144,6 +144,74 @@ describe('substituteTemplate', () => {
 
     const result = substituteTemplate(template, variables);
     expect(result).toBe('Audiobooks/Author/Books/Title');
+  });
+
+  it('should resolve escaped left brace only', () => {
+    const template = '{author}/\\{prefix {title}';
+    const variables: TemplateVariables = {
+      author: 'Author',
+      title: 'Title'
+    };
+
+    const result = substituteTemplate(template, variables);
+    expect(result).toBe('Author/{prefix Title');
+  });
+
+  it('should resolve escaped right brace only', () => {
+    const template = '{author}/{title} suffix\\}';
+    const variables: TemplateVariables = {
+      author: 'Author',
+      title: 'Title'
+    };
+
+    const result = substituteTemplate(template, variables);
+    expect(result).toBe('Author/Title suffix}');
+  });
+
+  it('should resolve multiple escaped brace pairs', () => {
+    const template = '\\{{author}\\}/\\{{title}\\}';
+    const variables: TemplateVariables = {
+      author: 'Author',
+      title: 'Title'
+    };
+
+    const result = substituteTemplate(template, variables);
+    expect(result).toBe('{Author}/{Title}');
+  });
+
+  it('should handle escaped braces with missing optional variable', () => {
+    const template = '{author}/\\{{narrator}\\}/{title}';
+    const variables: TemplateVariables = {
+      author: 'Author',
+      title: 'Title'
+      // narrator is missing
+    };
+
+    const result = substituteTemplate(template, variables);
+    expect(result).toBe('Author/{}/Title');
+  });
+
+  it('should handle escaped braces adjacent to path separators', () => {
+    const template = '{author}/\\{{narrator}\\}/{title}';
+    const variables: TemplateVariables = {
+      author: 'Author',
+      title: 'Title',
+      narrator: 'Michael Kramer'
+    };
+
+    const result = substituteTemplate(template, variables);
+    expect(result).toBe('Author/{Michael Kramer}/Title');
+  });
+
+  it('should handle escaped braces around static text', () => {
+    const template = '{author}/\\{narrated\\}/{title}';
+    const variables: TemplateVariables = {
+      author: 'Author',
+      title: 'Title'
+    };
+
+    const result = substituteTemplate(template, variables);
+    expect(result).toBe('Author/{narrated}/Title');
   });
 });
 
@@ -205,8 +273,8 @@ describe('validateTemplate', () => {
     });
   });
 
-  it('should reject backslashes in template', () => {
-    const result = validateTemplate('{author}\\{title}');
+  it('should reject backslashes that are not brace escapes', () => {
+    const result = validateTemplate('{author}\\n{title}');
     expect(result.valid).toBe(false);
     expect(result.error).toContain('forward slashes');
   });
@@ -229,6 +297,42 @@ describe('validateTemplate', () => {
     expect(result.error).toContain('{title}');
     expect(result.error).toContain('{narrator}');
     expect(result.error).toContain('{asin}');
+  });
+
+  it('should accept escaped braces around a variable', () => {
+    const result = validateTemplate('{author}/\\{{narrator}\\}/{title}');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept escaped braces around static text', () => {
+    const result = validateTemplate('{author}/\\{custom\\}/{title}');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept escaped left brace only', () => {
+    const result = validateTemplate('{author}/\\{prefix {title}');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept escaped right brace only', () => {
+    const result = validateTemplate('{author}/{title} suffix\\}');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept multiple escaped brace pairs', () => {
+    const result = validateTemplate('\\{{author}\\}/\\{{title}\\}');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept backslash before brace but reject backslash before other characters', () => {
+    const result = validateTemplate('{author}\\n/\\{{title}\\}');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('forward slashes');
+  });
+
+  it('should accept a template that is only escaped braces', () => {
+    const result = validateTemplate('\\{\\}');
+    expect(result.valid).toBe(true);
   });
 });
 
@@ -304,6 +408,17 @@ describe('generateMockPreviews', () => {
       expect(preview).toContain('/Books/');
       expect(preview).toContain(' - B');
     });
+  });
+
+  it('should resolve escaped braces in previews', () => {
+    const template = '{author}/\\{{narrator}\\}/{title}';
+    const previews = generateMockPreviews(template);
+
+    // First two mock entries have narrators
+    expect(previews[0]).toContain('{Michael Kramer}');
+    expect(previews[1]).toContain('{Stephen Fry}');
+    // Third mock entry has no narrator - escaped braces remain empty
+    expect(previews[2]).toContain('{}');
   });
 });
 

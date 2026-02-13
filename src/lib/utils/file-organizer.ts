@@ -8,6 +8,7 @@ import path from 'path';
 import axios from 'axios';
 import { tagMultipleFiles, checkFfmpegAvailable } from './metadata-tagger';
 import { RMABLogger } from './logger';
+import { copyFile } from './copy-file';
 
 const moduleLogger = RMABLogger.create('FileOrganizer');
 import {
@@ -20,6 +21,7 @@ import {
 } from './chapter-merger';
 import { prisma } from '../db';
 import { substituteTemplate, type TemplateVariables } from './path-template.util';
+import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 export interface AudiobookMetadata {
   title: string;
@@ -339,8 +341,8 @@ export class FileOrganizer {
 
         // Copy file (do NOT delete original - needed for seeding)
         try {
-          // Copy file using streaming (handles large files >2GB)
-          await fs.copyFile(sourcePath, targetFilePath);
+          // Copy file via streams (avoids copy_file_range EPERM on NFS/FUSE)
+          await copyFile(sourcePath, targetFilePath);
           // Set explicit permissions after copy
           await fs.chmod(targetFilePath, 0o644);
 
@@ -362,6 +364,34 @@ export class FileOrganizer {
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : 'Unknown error';
           await logger?.error(`Failed to copy ${filename}: ${errorMsg}`);
+
+          // If the tagged temp file failed to copy, clean it up and try the original untagged file
+          if (taggedFilePath) {
+            // Clean up the tagged temp file that failed to copy
+            try {
+              await fs.unlink(taggedFilePath);
+              await logger?.info(`Cleaned up temp file after copy failure: ${path.basename(taggedFilePath)}`);
+            } catch {
+              // Ignore cleanup errors
+            }
+
+            // Fallback: attempt to copy the original untagged file instead
+            await logger?.info(`Attempting fallback copy of original (untagged) file: ${filename}`);
+            try {
+              await fs.access(originalSourcePath, fs.constants.R_OK);
+              await copyFile(originalSourcePath, targetFilePath);
+              await fs.chmod(targetFilePath, 0o644);
+              result.audioFiles.push(targetFilePath);
+              result.filesMovedCount++;
+              await logger?.info(`Fallback copy succeeded (without metadata tags): ${filename}`);
+              result.errors.push(`Tagged copy failed for ${filename}, copied original without metadata tags`);
+              continue;
+            } catch (fallbackError) {
+              const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : 'Unknown error';
+              await logger?.error(`Fallback copy of original file also failed: ${fallbackMsg}`);
+            }
+          }
+
           result.errors.push(`Failed to copy ${audioFile}: ${errorMsg}`);
           // Continue with other files instead of throwing
         }
@@ -384,7 +414,7 @@ export class FileOrganizer {
 
         try {
           // Copy cover art (do NOT delete original)
-          await fs.copyFile(sourcePath, targetCoverPath);
+          await copyFile(sourcePath, targetCoverPath);
           await fs.chmod(targetCoverPath, 0o644);
           result.coverArtFile = targetCoverPath;
           result.filesMovedCount++;
@@ -411,7 +441,15 @@ export class FileOrganizer {
       // This replaces the old inline ebook sidecar download that happened here.
 
       result.targetPath = targetPath;
-      result.success = true;
+
+      // Only mark as success if at least one audio file was placed in the target directory
+      // (either freshly copied or already existed from a previous attempt)
+      if (result.audioFiles.length > 0) {
+        result.success = true;
+      } else {
+        result.errors.push('No audio files were successfully copied to the target directory');
+        await logger?.error(`Organization failed: no audio files copied despite ${audioFiles.length} file(s) found`);
+      }
 
       // DO NOT clean up download directory - files needed for seeding
       // Cleanup will be handled by the seeding cleanup job after seeding requirements are met
@@ -431,7 +469,7 @@ export class FileOrganizer {
   private async findAudiobookFiles(
     downloadPath: string
   ): Promise<{ audioFiles: string[]; coverFile?: string; isFile: boolean }> {
-    const audioExtensions = ['.m4b', '.m4a', '.mp3', '.mp4', '.aa', '.aax'];
+    const audioExtensions: readonly string[] = AUDIO_EXTENSIONS;
     const coverPatterns = [
       /cover\.(jpg|jpeg|png)$/i,
       /folder\.(jpg|jpeg|png)$/i,
@@ -571,7 +609,7 @@ export class FileOrganizer {
         const cachedPath = path.join('/app/cache/thumbnails', filename);
 
         // Copy from local cache instead of downloading
-        await fs.copyFile(cachedPath, targetPath);
+        await copyFile(cachedPath, targetPath);
         await fs.chmod(targetPath, 0o644);
         moduleLogger.debug(`Copied cover art from cache: ${filename}`);
       } else {
@@ -718,7 +756,7 @@ export class FileOrganizer {
       }
 
       // Copy ebook file (do NOT delete original - may need for seeding or retry)
-      await fs.copyFile(sourceFilePath, targetPath);
+      await copyFile(sourceFilePath, targetPath);
       await fs.chmod(targetPath, 0o644);
 
       await logger?.info(`Copied ebook: ${targetFilename}`);

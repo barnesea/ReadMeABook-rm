@@ -7,6 +7,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
+import { METADATA_TAG_FORMATS, MP4_CONTAINER_FORMATS } from '../constants/audio-formats';
 
 const execPromise = promisify(exec);
 
@@ -41,7 +42,7 @@ export async function tagAudioFileMetadata(
     const ext = path.extname(filePath).toLowerCase();
 
     // Only process supported formats
-    if (!['.m4b', '.m4a', '.mp3', '.mp4'].includes(ext)) {
+    if (!(METADATA_TAG_FORMATS as readonly string[]).includes(ext)) {
       return {
         success: false,
         filePath,
@@ -61,7 +62,7 @@ export async function tagAudioFileMetadata(
     ];
 
     // For m4b/m4a/mp4 files, use standard metadata tags
-    if (['.m4b', '.m4a', '.mp4'].includes(ext)) {
+    if ((MP4_CONTAINER_FORMATS as readonly string[]).includes(ext)) {
       args.push(
         '-metadata', `title="${escapeMetadata(metadata.title)}"`,
         '-metadata', `album="${escapeMetadata(metadata.title)}"`, // Book title in Album field (Plex uses this)
@@ -84,6 +85,31 @@ export async function tagAudioFileMetadata(
 
       // Explicitly specify output format (fixes .tmp extension issue)
       args.push('-f', 'mp4');
+    }
+    // For FLAC files, use Vorbis comment tags (native FLAC metadata)
+    else if (ext === '.flac') {
+      args.push(
+        '-metadata', `title="${escapeMetadata(metadata.title)}"`,
+        '-metadata', `album="${escapeMetadata(metadata.title)}"`,
+        '-metadata', `albumartist="${escapeMetadata(metadata.author)}"`,
+        '-metadata', `artist="${escapeMetadata(metadata.author)}"`
+      );
+
+      if (metadata.narrator) {
+        args.push('-metadata', `composer="${escapeMetadata(metadata.narrator)}"`);
+      }
+
+      if (metadata.year) {
+        args.push('-metadata', `date="${metadata.year}"`);
+      }
+
+      if (metadata.asin) {
+        // FLAC supports arbitrary Vorbis comment tags
+        args.push('-metadata', `ASIN="${escapeMetadata(metadata.asin)}"`);
+      }
+
+      // Explicitly specify output format
+      args.push('-f', 'flac');
     }
     // For mp3 files, use ID3v2 tags
     else if (ext === '.mp3') {

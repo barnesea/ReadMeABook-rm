@@ -17,7 +17,7 @@ export interface TorrentResult {
   infoUrl?: string;     // Link to indexer's info page (for user reference)
   infoHash?: string;
   guid: string;
-  format?: 'M4B' | 'M4A' | 'MP3' | 'OTHER';
+  format?: 'M4B' | 'M4A' | 'MP3' | 'FLAC' | 'OTHER';
   bitrate?: string;
   hasChapters?: boolean;
   flags?: string[];     // Indexer flags like "Freeleech", "Internal", etc.
@@ -254,6 +254,7 @@ export class RankingAlgorithm {
    * Reduced from 25 to make room for data-driven size scoring
    * M4B with chapters: 10 pts
    * M4B without chapters: 9 pts
+   * FLAC: 7 pts (lossless audio, excellent quality)
    * M4A: 6 pts
    * MP3: 4 pts
    * Other: 1 pt
@@ -264,6 +265,8 @@ export class RankingAlgorithm {
     switch (format) {
       case 'M4B':
         return torrent.hasChapters !== false ? 10 : 9;
+      case 'FLAC':
+        return 7;
       case 'M4A':
         return 6;
       case 'MP3':
@@ -395,11 +398,13 @@ export class RankingAlgorithm {
         .filter(word => word.length > 0 && !stopList.includes(word));
     };
 
-    // Separate required words (outside parentheses/brackets) from optional words (inside)
-    // This handles common patterns like "Title (Subtitle)" where subtitle may be omitted
-    // Note: Run on ORIGINAL title to preserve brackets, then normalize the result
+    // Separate required words (outside parentheses/brackets/colon subtitles) from optional words
+    // This handles common patterns like:
+    //   "Title (Subtitle)" where subtitle may be omitted
+    //   "Title: Series Name" where Audible appends series names after a colon
+    // Note: Run on ORIGINAL title to preserve brackets/colons, then normalize the result
     const separateRequiredOptional = (title: string): { required: string; optional: string } => {
-      // Work with original title format for bracket detection
+      // Work with original title format for bracket/colon detection
       const originalTitle = audiobook.title.toLowerCase();
 
       // Extract content in parentheses/brackets as optional
@@ -411,8 +416,20 @@ export class RankingAlgorithm {
         optionalMatches.push(match[1]);
       }
 
-      // Remove parenthetical/bracketed content to get required portion
-      const requiredRaw = originalTitle.replace(/[(\[{][^)\]}]+[)\]}]/g, ' ').trim();
+      // Remove parenthetical/bracketed content to get the non-bracketed portion
+      let requiredRaw = originalTitle.replace(/[(\[{][^)\]}]+[)\]}]/g, ' ').trim();
+
+      // Treat content after a colon as optional (Audible commonly appends series names)
+      // e.g., "The Finest Edge of Twilight: Dungeons & Dragons" → required: title, optional: series
+      const colonIndex = requiredRaw.indexOf(':');
+      if (colonIndex > 0 && colonIndex < requiredRaw.length - 1) {
+        const afterColon = requiredRaw.substring(colonIndex + 1).trim();
+        if (afterColon.length > 0) {
+          optionalMatches.push(afterColon);
+        }
+        requiredRaw = requiredRaw.substring(0, colonIndex).trim();
+      }
+
       // Normalize the required portion (handles CamelCase, punctuation)
       const required = this.normalizeForMatching(requiredRaw);
       const optional = optionalMatches.join(' ');
@@ -652,7 +669,7 @@ export class RankingAlgorithm {
   /**
    * Detect format from torrent title
    */
-  private detectFormat(torrent: TorrentResult): 'M4B' | 'M4A' | 'MP3' | 'OTHER' {
+  private detectFormat(torrent: TorrentResult): 'M4B' | 'M4A' | 'MP3' | 'FLAC' | 'OTHER' {
     // Use explicit format if provided
     if (torrent.format) {
       return torrent.format;
@@ -664,6 +681,7 @@ export class RankingAlgorithm {
     if (title.includes('M4B')) return 'M4B';
     if (title.includes('M4A')) return 'M4A';
     if (title.includes('MP3')) return 'MP3';
+    if (title.includes('FLAC')) return 'FLAC';
 
     // Default to OTHER if no format detected
     return 'OTHER';
@@ -686,6 +704,8 @@ export class RankingAlgorithm {
       if (torrent.hasChapters !== false) {
         notes.push('Has chapter markers');
       }
+    } else if (format === 'FLAC') {
+      notes.push('Lossless format (FLAC)');
     } else if (format === 'M4A') {
       notes.push('Good format (M4A)');
     } else if (format === 'MP3') {

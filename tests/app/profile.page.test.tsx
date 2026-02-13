@@ -17,6 +17,15 @@ vi.mock('@/lib/hooks/useRequests', () => ({
   useRequests: useRequestsMock,
 }));
 
+vi.mock('@/contexts/PreferencesContext', () => ({
+  usePreferences: () => ({
+    cardSize: 5,
+    setCardSize: vi.fn(),
+    squareCovers: true,
+    setSquareCovers: vi.fn(),
+  }),
+}));
+
 vi.mock('@/components/layout/Header', () => ({
   Header: () => <div data-testid="header" />,
 }));
@@ -36,7 +45,7 @@ vi.mock('@/components/requests/RequestCard', () => ({
 const getStatValue = (label: string) => {
   const labelNode = screen.getByText(label);
   const container = labelNode.parentElement;
-  const valueNode = container?.querySelector('p:nth-of-type(2)');
+  const valueNode = container?.querySelector('div:first-child');
   return valueNode?.textContent;
 };
 
@@ -55,7 +64,7 @@ describe('ProfilePage', () => {
     const { default: ProfilePage } = await import('@/app/profile/page');
     render(<ProfilePage />);
 
-    expect(screen.getByText('Authentication Required')).toBeInTheDocument();
+    expect(screen.getByText('Sign in required')).toBeInTheDocument();
     expect(screen.getByText('Please log in to view your profile')).toBeInTheDocument();
   });
 
@@ -87,7 +96,7 @@ describe('ProfilePage', () => {
     expect(getStatValue('Total')).toBe('6');
     expect(getStatValue('Active')).toBe('2');
     expect(getStatValue('Waiting')).toBe('1');
-    expect(getStatValue('Completed')).toBe('1');
+    expect(getStatValue('Complete')).toBe('1');
     expect(getStatValue('Failed')).toBe('1');
     expect(getStatValue('Cancelled')).toBe('1');
 

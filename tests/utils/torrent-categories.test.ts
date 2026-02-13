@@ -11,6 +11,8 @@ import {
   getChildIds,
   getParentId,
   isParentCategory,
+  getAllStandardCategoryIds,
+  isStandardCategory,
 } from '@/lib/utils/torrent-categories';
 
 describe('torrent categories', () => {
@@ -38,5 +40,23 @@ describe('torrent categories', () => {
   it('keeps default categories stable', () => {
     expect(DEFAULT_CATEGORIES).toEqual([3030]);
     expect(TORRENT_CATEGORIES.length).toBeGreaterThan(0);
+  });
+
+  it('returns all standard category IDs including parents and children', () => {
+    const ids = getAllStandardCategoryIds();
+    expect(ids.has(3000)).toBe(true); // parent
+    expect(ids.has(3030)).toBe(true); // child
+    expect(ids.has(7020)).toBe(true); // child
+    expect(ids.has(8000)).toBe(true); // parent with no children
+    expect(ids.has(99999)).toBe(false); // not a standard category
+  });
+
+  it('identifies standard vs custom categories', () => {
+    expect(isStandardCategory(3000)).toBe(true);
+    expect(isStandardCategory(3030)).toBe(true);
+    expect(isStandardCategory(7020)).toBe(true);
+    expect(isStandardCategory(8000)).toBe(true);
+    expect(isStandardCategory(12345)).toBe(false);
+    expect(isStandardCategory(0)).toBe(false);
   });
 });

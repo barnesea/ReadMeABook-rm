@@ -14,7 +14,8 @@ interface PlexStepProps {
   plexToken: string;
   plexLibraryId: string;
   plexTriggerScanAfterImport: boolean;
-  onUpdate: (field: string, value: string | boolean) => void;
+  plexLibraries: PlexLibrary[];
+  onUpdate: (field: string, value: any) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -30,6 +31,7 @@ export function PlexStep({
   plexToken,
   plexLibraryId,
   plexTriggerScanAfterImport,
+  plexLibraries,
   onUpdate,
   onNext,
   onBack,
@@ -39,8 +41,12 @@ export function PlexStep({
     success: boolean;
     message: string;
     libraries?: PlexLibrary[];
-  } | null>(null);
-  const [libraries, setLibraries] = useState<PlexLibrary[]>([]);
+  } | null>(
+    plexLibraries.length > 0
+      ? { success: true, message: 'Connection verified previously.' }
+      : null
+  );
+  const [libraries, setLibraries] = useState<PlexLibrary[]>(plexLibraries);
 
   const testConnection = async () => {
     setTesting(true);
@@ -56,12 +62,14 @@ export function PlexStep({
       const data = await response.json();
 
       if (response.ok && data.success) {
+        const libs = data.libraries || [];
         setTestResult({
           success: true,
           message: `Connected to ${data.serverName || 'Plex server'} successfully!`,
-          libraries: data.libraries || [],
+          libraries: libs,
         });
-        setLibraries(data.libraries || []);
+        setLibraries(libs);
+        onUpdate('plexLibraries', libs);
       } else {
         setTestResult({
           success: false,

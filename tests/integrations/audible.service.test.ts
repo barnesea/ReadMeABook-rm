@@ -134,14 +134,14 @@ describe('AudibleService', () => {
   it('paginates new releases and respects delays between pages', async () => {
     configServiceMock.getAudibleRegion.mockResolvedValue('us');
     clientMock.get
-      .mockResolvedValueOnce({ data: buildListHtml(10, 0) })
-      .mockResolvedValueOnce({ data: buildListHtml(5, 10) });
+      .mockResolvedValueOnce({ data: buildListHtml(50, 0) })
+      .mockResolvedValueOnce({ data: buildListHtml(25, 50) });
 
     const service = new AudibleService();
     const delaySpy = vi.spyOn(service as any, 'delay').mockResolvedValue(undefined);
-    const results = await service.getNewReleases(25);
+    const results = await service.getNewReleases(75);
 
-    expect(results).toHaveLength(15);
+    expect(results).toHaveLength(75);
     expect(delaySpy).toHaveBeenCalledTimes(1);
   });
 
@@ -345,14 +345,14 @@ describe('AudibleService', () => {
   it('paginates popular audiobooks across pages', async () => {
     configServiceMock.getAudibleRegion.mockResolvedValue('us');
     clientMock.get
-      .mockResolvedValueOnce({ data: buildListHtml(10, 0) })
-      .mockResolvedValueOnce({ data: buildListHtml(10, 10) });
+      .mockResolvedValueOnce({ data: buildListHtml(50, 0) })
+      .mockResolvedValueOnce({ data: buildListHtml(25, 50) });
 
     const service = new AudibleService();
     const delaySpy = vi.spyOn(service as any, 'delay').mockResolvedValue(undefined);
-    const results = await service.getPopularAudiobooks(25);
+    const results = await service.getPopularAudiobooks(75);
 
-    expect(results).toHaveLength(20);
+    expect(results).toHaveLength(75);
     expect(delaySpy).toHaveBeenCalledTimes(1);
   });
 

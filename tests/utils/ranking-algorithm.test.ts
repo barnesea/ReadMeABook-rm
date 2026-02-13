@@ -116,6 +116,25 @@ describe('ranking-algorithm', () => {
     expect(highSeeders.some((note: string) => note.includes('Excellent availability'))).toBe(true);
   });
 
+  it('adds lossless format note for FLAC files', () => {
+    const algorithm = new RankingAlgorithm();
+    const breakdown = {
+      formatScore: 0,
+      sizeScore: 0,
+      seederScore: 0,
+      matchScore: 50,
+      totalScore: 50,
+      notes: [],
+    };
+
+    const flacNotes = (algorithm as any).generateNotes(
+      { ...baseTorrent, format: 'FLAC', title: 'Book Title [FLAC]' },
+      breakdown,
+      60
+    );
+    expect(flacNotes.some((note: string) => note.includes('Lossless format'))).toBe(true);
+  });
+
   it('adds format and size quality notes for MP3 files', () => {
     const algorithm = new RankingAlgorithm();
     const breakdown = {
@@ -211,6 +230,113 @@ describe('ranking-algorithm', () => {
       });
 
       expect(breakdown.matchScore).toBeGreaterThan(50);
+    });
+  });
+
+  describe('Colon-Separated Subtitle/Series Handling', () => {
+    const algorithm = new RankingAlgorithm();
+
+    it('matches "The Finest Edge of Twilight: Dungeons & Dragons" when torrent omits series', () => {
+      const torrent = {
+        ...baseTorrent,
+        title: 'The Finest Edge of Twilight by R A Salvatore [ENG / M4B]',
+        seeders: 129,
+        size: 650 * MB,
+      };
+
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'The Finest Edge of Twilight: Dungeons & Dragons',
+        author: 'R.A. Salvatore',
+      });
+
+      // Should pass word coverage (required: "finest", "edge", "twilight" — "dungeons" and "dragons" are optional)
+      // Should NOT get 0 match score
+      expect(breakdown.matchScore).toBeGreaterThan(0);
+      expect(breakdown.matchScore).toBeGreaterThan(40);
+    });
+
+    it('matches when torrent includes the colon subtitle', () => {
+      const torrent = {
+        ...baseTorrent,
+        title: 'The Finest Edge of Twilight Dungeons and Dragons by R A Salvatore [M4B]',
+        seeders: 50,
+        size: 650 * MB,
+      };
+
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'The Finest Edge of Twilight: Dungeons & Dragons',
+        author: 'R.A. Salvatore',
+      });
+
+      // Should still match when torrent has the full title including subtitle
+      expect(breakdown.matchScore).toBeGreaterThan(0);
+    });
+
+    it('matches "Project Hail Mary: A Novel" when torrent has just the title', () => {
+      const torrent = {
+        ...baseTorrent,
+        title: 'Andy Weir - Project Hail Mary [M4B]',
+        seeders: 100,
+        size: 400 * MB,
+      };
+
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'Project Hail Mary: A Novel',
+        author: 'Andy Weir',
+      });
+
+      // "A Novel" after colon should be optional
+      expect(breakdown.matchScore).toBeGreaterThan(40);
+    });
+
+    it('matches title with both colon subtitle and parenthetical content', () => {
+      const torrent = {
+        ...baseTorrent,
+        title: 'Author Name - Book Title [Unabridged]',
+        seeders: 50,
+      };
+
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'Book Title: Series Name (Book 1)',
+        author: 'Author Name',
+      });
+
+      // Both ": Series Name" and "(Book 1)" should be optional
+      expect(breakdown.matchScore).toBeGreaterThan(0);
+    });
+
+    it('does not treat colon at start of title as optional split', () => {
+      const torrent = {
+        ...baseTorrent,
+        title: 'Author - Some Title',
+        seeders: 50,
+      };
+
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'Some Title',
+        author: 'Author',
+      });
+
+      // Normal match, no colon involved
+      expect(breakdown.matchScore).toBeGreaterThan(40);
+    });
+
+    it('handles "Re:Zero" style titles where colon is part of the word', () => {
+      const torrent = {
+        ...baseTorrent,
+        title: 'Author - Re Zero Starting Life in Another World',
+        seeders: 50,
+        size: 500 * MB,
+      };
+
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'Re:Zero - Starting Life in Another World',
+        author: 'Author',
+      });
+
+      // "Re" is required, "Zero - Starting Life in Another World" is optional after colon
+      // But the torrent still has all the words so it should score reasonably
+      expect(breakdown.matchScore).toBeGreaterThan(0);
     });
   });
 
@@ -756,6 +882,43 @@ describe('ranking-algorithm', () => {
       });
 
       expect(breakdown.formatScore).toBe(4);
+    });
+
+    it('detects FLAC format from title', () => {
+      const torrent = { ...baseTorrent, title: 'Book Title [FLAC]' };
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'Book Title',
+        author: 'Author',
+      });
+
+      expect(breakdown.formatScore).toBe(7);
+    });
+
+    it('scores FLAC between M4B and M4A', () => {
+      const flacTorrent = { ...baseTorrent, title: 'Book Title [FLAC]' };
+      const m4bTorrent = { ...baseTorrent, title: 'Book Title [M4B]' };
+      const m4aTorrent = { ...baseTorrent, title: 'Book Title [M4A]' };
+
+      const flacBreakdown = algorithm.getScoreBreakdown(flacTorrent, { title: 'Book Title', author: 'Author' });
+      const m4bBreakdown = algorithm.getScoreBreakdown(m4bTorrent, { title: 'Book Title', author: 'Author' });
+      const m4aBreakdown = algorithm.getScoreBreakdown(m4aTorrent, { title: 'Book Title', author: 'Author' });
+
+      expect(m4bBreakdown.formatScore).toBeGreaterThan(flacBreakdown.formatScore);
+      expect(flacBreakdown.formatScore).toBeGreaterThan(m4aBreakdown.formatScore);
+    });
+
+    it('uses explicit FLAC format field when provided', () => {
+      const torrent = {
+        ...baseTorrent,
+        title: 'Book Title',
+        format: 'FLAC' as const,
+      };
+      const breakdown = algorithm.getScoreBreakdown(torrent, {
+        title: 'Book Title',
+        author: 'Author',
+      });
+
+      expect(breakdown.formatScore).toBe(7);
     });
 
     it('uses explicit format field when provided', () => {

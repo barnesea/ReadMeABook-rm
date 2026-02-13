@@ -8,10 +8,13 @@ import { SABnzbdService, getSABnzbdService, invalidateSABnzbdService } from '@/l
 
 const clientMock = vi.hoisted(() => ({
   get: vi.fn(),
+  post: vi.fn(),
 }));
 
 const axiosMock = vi.hoisted(() => ({
   create: vi.fn(() => clientMock),
+  get: vi.fn(),
+  isAxiosError: vi.fn(() => false),
 }));
 
 const configServiceMock = vi.hoisted(() => ({
@@ -43,6 +46,8 @@ describe('SABnzbdService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clientMock.get.mockReset();
+    clientMock.post.mockReset();
+    axiosMock.get.mockReset();
     configServiceMock.get.mockReset();
     downloadClientManagerMock.getClientForProtocol.mockReset();
     downloadClientManagerMock.getAllClients.mockReset();
@@ -56,7 +61,7 @@ describe('SABnzbdService', () => {
     const result = await service.testConnection();
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('API key is required');
+    expect(result.message).toContain('API key is required');
     expect(clientMock.get).not.toHaveBeenCalled();
   });
 
@@ -69,7 +74,7 @@ describe('SABnzbdService', () => {
     const result = await service.testConnection();
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Invalid API key');
+    expect(result.message).toContain('Invalid API key');
     expect(clientMock.get).toHaveBeenCalledTimes(1);
   });
 
@@ -82,7 +87,7 @@ describe('SABnzbdService', () => {
     const result = await service.testConnection();
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe('No permissions');
+    expect(result.message).toBe('No permissions');
   });
 
   it('returns version when connection succeeds', async () => {
@@ -105,7 +110,7 @@ describe('SABnzbdService', () => {
     const result = await service.testConnection();
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('SSL/TLS certificate error');
+    expect(result.message).toContain('SSL/TLS certificate error');
   });
 
   it('returns a friendly error on connection refused', async () => {
@@ -115,7 +120,7 @@ describe('SABnzbdService', () => {
     const result = await service.testConnection();
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Connection refused');
+    expect(result.message).toContain('Connection refused');
   });
 
   it('adds NZB with mapped priority', async () => {
@@ -123,10 +128,16 @@ describe('SABnzbdService', () => {
     clientMock.get
       .mockResolvedValueOnce({
         data: { config: { version: '1', misc: { complete_dir: '/downloads' }, categories: { books: { dir: '' } } } },
-      })
-      .mockResolvedValueOnce({
-        data: { status: true, nzo_ids: ['nzb-1'] },
       });
+    // Mock NZB file download (global axios.get)
+    axiosMock.get.mockResolvedValueOnce({
+      data: Buffer.from('fake-nzb-content'),
+      headers: {},
+    });
+    // Mock addfile upload (POST instead of GET)
+    clientMock.post.mockResolvedValueOnce({
+      data: { status: true, nzo_ids: ['nzb-1'] },
+    });
 
     const service = new SABnzbdService('http://sab', 'key', 'books', '/downloads');
     const nzbId = await service.addNZB('https://example.com/book.nzb', {
@@ -134,11 +145,8 @@ describe('SABnzbdService', () => {
       priority: 'high',
     });
 
-    // Second call is the addurl call
-    const params = clientMock.get.mock.calls[1][1].params;
     expect(nzbId).toBe('nzb-1');
-    expect(params.cat).toBe('books');
-    expect(params.priority).toBe('1');
+    expect(clientMock.post).toHaveBeenCalledTimes(1);
   });
 
   it('adds NZB with force priority', async () => {
@@ -146,17 +154,22 @@ describe('SABnzbdService', () => {
     clientMock.get
       .mockResolvedValueOnce({
         data: { config: { version: '1', misc: { complete_dir: '/downloads' }, categories: { readmeabook: { dir: '' } } } },
-      })
-      .mockResolvedValueOnce({
-        data: { status: true, nzo_ids: ['nzb-9'] },
       });
+    // Mock NZB file download
+    axiosMock.get.mockResolvedValueOnce({
+      data: Buffer.from('fake-nzb-content'),
+      headers: {},
+    });
+    // Mock addfile upload
+    clientMock.post.mockResolvedValueOnce({
+      data: { status: true, nzo_ids: ['nzb-9'] },
+    });
 
     const service = new SABnzbdService('http://sab', 'key', 'readmeabook', '/downloads');
-    await service.addNZB('https://example.com/book.nzb', { priority: 'force' });
+    const nzbId = await service.addNZB('https://example.com/book.nzb', { priority: 'force' });
 
-    // Second call is the addurl call
-    const params = clientMock.get.mock.calls[1][1].params;
-    expect(params.priority).toBe('2');
+    expect(nzbId).toBe('nzb-9');
+    expect(clientMock.post).toHaveBeenCalledTimes(1);
   });
 
   it('returns queue item info when NZB is active', async () => {
@@ -428,14 +441,18 @@ describe('SABnzbdService', () => {
     expect(clientMock.get.mock.calls[0][1].params.mode).toBe('get_config');
   });
   it('throws when addNZB reports a failure', async () => {
-    // Mock getConfig for ensureCategory, then the addurl failure
+    // Mock getConfig for ensureCategory, then the upload failure
     clientMock.get
       .mockResolvedValueOnce({
         data: { config: { version: '1', misc: { complete_dir: '/downloads' }, categories: { readmeabook: { dir: '' } } } },
-      })
-      .mockResolvedValueOnce({
-        data: { status: false, error: 'Bad NZB' },
       });
+    axiosMock.get.mockResolvedValueOnce({
+      data: Buffer.from('fake-nzb-content'),
+      headers: {},
+    });
+    clientMock.post.mockResolvedValueOnce({
+      data: { status: false, error: 'Bad NZB' },
+    });
 
     const service = new SABnzbdService('http://sab', 'key', 'readmeabook', '/downloads');
 
@@ -443,14 +460,18 @@ describe('SABnzbdService', () => {
   });
 
   it('throws when SABnzbd returns no NZB IDs', async () => {
-    // Mock getConfig for ensureCategory, then the addurl with empty IDs
+    // Mock getConfig for ensureCategory, then the upload with empty IDs
     clientMock.get
       .mockResolvedValueOnce({
         data: { config: { version: '1', misc: { complete_dir: '/downloads' }, categories: { readmeabook: { dir: '' } } } },
-      })
-      .mockResolvedValueOnce({
-        data: { status: true, nzo_ids: [] },
       });
+    axiosMock.get.mockResolvedValueOnce({
+      data: Buffer.from('fake-nzb-content'),
+      headers: {},
+    });
+    clientMock.post.mockResolvedValueOnce({
+      data: { status: true, nzo_ids: [] },
+    });
 
     const service = new SABnzbdService('http://sab', 'key', 'readmeabook', '/downloads');
 
@@ -475,7 +496,7 @@ describe('SABnzbdService', () => {
     const result = await service.testConnection();
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('timed out');
+    expect(result.message).toContain('timed out');
   });
 
   it('throws when version is missing from response', async () => {

@@ -186,7 +186,7 @@ export async function deleteABSItem(itemId: string): Promise<void> {
     throw new Error('Audiobookshelf not configured');
   }
 
-  const url = `${serverUrl.replace(/\/$/, '')}/api/items/${itemId}`;
+  const url = `${serverUrl.replace(/\/$/, '')}/api/items/${itemId}?hard=1`;
 
   const response = await fetch(url, {
     method: 'DELETE',

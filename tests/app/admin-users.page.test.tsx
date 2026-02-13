@@ -6,7 +6,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AdminUsersPage from '@/app/admin/users/page';
 
@@ -38,6 +38,60 @@ vi.mock('@/components/ui/Toast', () => ({
   useToast: () => toastMock,
 }));
 
+const makeUser = (overrides: Record<string, any> = {}) => ({
+  id: 'u1',
+  plexUsername: 'TestUser',
+  plexId: 'plex-1',
+  role: 'user',
+  isSetupAdmin: false,
+  authProvider: 'local',
+  plexEmail: 'test@example.com',
+  avatarUrl: null,
+  createdAt: '',
+  updatedAt: '',
+  lastLoginAt: null,
+  autoApproveRequests: false,
+  interactiveSearchAccess: null,
+  _count: { requests: 0 },
+  ...overrides,
+});
+
+/** Sets up all required SWR state for the page, with optional overrides. */
+function setupSWR(opts: {
+  users?: any[];
+  pendingUsers?: any[];
+  autoApprove?: boolean;
+  interactiveSearch?: boolean;
+  mutateUsers?: ReturnType<typeof vi.fn>;
+  mutatePending?: ReturnType<typeof vi.fn>;
+  mutateAutoApprove?: ReturnType<typeof vi.fn>;
+  mutateInteractiveSearch?: ReturnType<typeof vi.fn>;
+} = {}) {
+  const mutateUsers = opts.mutateUsers ?? vi.fn();
+  const mutatePending = opts.mutatePending ?? vi.fn();
+  const mutateAutoApprove = opts.mutateAutoApprove ?? vi.fn();
+  const mutateInteractiveSearch = opts.mutateInteractiveSearch ?? vi.fn();
+
+  swrState.set('/api/admin/users', {
+    data: { users: opts.users ?? [makeUser()] },
+    mutate: mutateUsers,
+  });
+  swrState.set('/api/admin/users/pending', {
+    data: { users: opts.pendingUsers ?? [] },
+    mutate: mutatePending,
+  });
+  swrState.set('/api/admin/settings/auto-approve', {
+    data: { autoApproveRequests: opts.autoApprove ?? false },
+    mutate: mutateAutoApprove,
+  });
+  swrState.set('/api/admin/settings/interactive-search', {
+    data: { interactiveSearchAccess: opts.interactiveSearch ?? true },
+    mutate: mutateInteractiveSearch,
+  });
+
+  return { mutateUsers, mutatePending, mutateAutoApprove, mutateInteractiveSearch };
+}
+
 describe('AdminUsersPage', () => {
   beforeEach(() => {
     swrState.clear();
@@ -46,22 +100,17 @@ describe('AdminUsersPage', () => {
     toastMock.error.mockReset();
   });
 
-  it('toggles global auto-approve and persists setting', async () => {
-    const mutateUsers = vi.fn();
-    const mutatePending = vi.fn();
-    const mutateGlobal = vi.fn();
-
-    swrState.set('/api/admin/users', {
-      data: { users: [{ id: 'u1', plexUsername: 'User', plexId: 'plex-1', role: 'user', isSetupAdmin: false, authProvider: 'local', plexEmail: null, avatarUrl: null, createdAt: '', updatedAt: '', lastLoginAt: null, autoApproveRequests: false, _count: { requests: 0 } }] },
-      mutate: mutateUsers,
-    });
-    swrState.set('/api/admin/users/pending', { data: { users: [] }, mutate: mutatePending });
-    swrState.set('/api/admin/settings/auto-approve', { data: { autoApproveRequests: false }, mutate: mutateGlobal });
+  it('opens global settings modal and toggles auto-approve', async () => {
+    const { mutateAutoApprove, mutateUsers } = setupSWR({ autoApprove: false });
 
     fetchJSONMock.mockResolvedValueOnce({ success: true });
 
     render(<AdminUsersPage />);
 
+    // Open the Global Settings modal
+    fireEvent.click(await screen.findByRole('button', { name: /Global.*Permissions/i }));
+
+    // Click the toggle label inside the modal
     fireEvent.click(await screen.findByText('Auto-Approve All Requests'));
 
     await waitFor(() => {
@@ -69,38 +118,171 @@ describe('AdminUsersPage', () => {
         method: 'PATCH',
         body: JSON.stringify({ autoApproveRequests: true }),
       });
-      expect(mutateGlobal).toHaveBeenCalled();
+      expect(mutateAutoApprove).toHaveBeenCalled();
       expect(mutateUsers).toHaveBeenCalled();
     });
   });
 
-  it('edits a user role and saves changes', async () => {
-    const mutateUsers = vi.fn();
+  it('opens global settings modal and toggles interactive search', async () => {
+    const { mutateInteractiveSearch, mutateUsers } = setupSWR({ interactiveSearch: true });
 
-    swrState.set('/api/admin/users', {
-      data: {
-        users: [
-          {
-            id: 'u2',
-            plexUsername: 'LocalUser',
-            plexId: 'local-1',
-            role: 'user',
-            isSetupAdmin: false,
-            authProvider: 'local',
-            plexEmail: 'local@example.com',
-            avatarUrl: null,
-            createdAt: '',
-            updatedAt: '',
-            lastLoginAt: null,
-            autoApproveRequests: false,
-            _count: { requests: 2 },
-          },
-        ],
-      },
-      mutate: mutateUsers,
+    fetchJSONMock.mockResolvedValueOnce({ success: true });
+
+    render(<AdminUsersPage />);
+
+    // Open the Global Settings modal
+    fireEvent.click(await screen.findByRole('button', { name: /Global.*Permissions/i }));
+
+    // Click the interactive search toggle label inside the modal
+    fireEvent.click(await screen.findByText('Interactive Search Access'));
+
+    await waitFor(() => {
+      expect(fetchJSONMock).toHaveBeenCalledWith('/api/admin/settings/interactive-search', {
+        method: 'PATCH',
+        body: JSON.stringify({ interactiveSearchAccess: false }),
+      });
+      expect(mutateInteractiveSearch).toHaveBeenCalled();
+      expect(mutateUsers).toHaveBeenCalled();
     });
-    swrState.set('/api/admin/users/pending', { data: { users: [] }, mutate: vi.fn() });
-    swrState.set('/api/admin/settings/auto-approve', { data: { autoApproveRequests: true }, mutate: vi.fn() });
+  });
+
+  it('shows correct permission badges in the users table', async () => {
+    setupSWR({
+      users: [
+        makeUser({ id: 'u-admin', plexUsername: 'AdminUser', role: 'admin' }),
+        makeUser({ id: 'u-manual', plexUsername: 'ManualUser', role: 'user', autoApproveRequests: false }),
+        makeUser({ id: 'u-approved', plexUsername: 'ApprovedUser', role: 'user', autoApproveRequests: true }),
+      ],
+      autoApprove: false,
+    });
+
+    render(<AdminUsersPage />);
+
+    expect(await screen.findByText('Full Access')).toBeDefined();
+    expect(screen.getByText('Manual')).toBeDefined();
+    expect(screen.getByText('Auto-Approve')).toBeDefined();
+  });
+
+  it('shows Global Default badge when global auto-approve is on', async () => {
+    setupSWR({
+      users: [makeUser({ id: 'u-user', plexUsername: 'RegularUser', role: 'user', autoApproveRequests: false })],
+      autoApprove: true,
+    });
+
+    render(<AdminUsersPage />);
+
+    expect(await screen.findByText('Global Default')).toBeDefined();
+  });
+
+  it('opens user permissions modal and shows admin lock state for both permissions', async () => {
+    setupSWR({
+      users: [makeUser({ id: 'u-admin', plexUsername: 'AdminUser', role: 'admin', plexEmail: 'admin@test.com' })],
+      autoApprove: false,
+      interactiveSearch: false,
+    });
+
+    render(<AdminUsersPage />);
+
+    // Click the permissions badge to open modal
+    fireEvent.click(await screen.findByText('Full Access'));
+
+    // Modal should show user info and the locked state for both permissions
+    expect(await screen.findByText('User Permissions')).toBeDefined();
+    expect(screen.getAllByText('AdminUser').length).toBeGreaterThanOrEqual(2); // table + modal
+    expect(screen.getByText('Admin requests are always auto-approved')).toBeDefined();
+    expect(screen.getByText('Admins always have interactive search access')).toBeDefined();
+  });
+
+  it('opens user permissions modal and toggles auto-approve for regular user', async () => {
+    const { mutateUsers } = setupSWR({
+      users: [makeUser({ id: 'u-reg', plexUsername: 'RegularUser', autoApproveRequests: false })],
+      autoApprove: false,
+      interactiveSearch: false,
+    });
+
+    fetchJSONMock.mockResolvedValueOnce({ success: true });
+
+    render(<AdminUsersPage />);
+
+    // Click the Manual badge to open permissions modal
+    fireEvent.click(await screen.findByText('Manual'));
+
+    // Find and click the auto-approve toggle switch inside the modal
+    const toggle = await screen.findByRole('switch', { name: 'Auto-Approve Requests' });
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(fetchJSONMock).toHaveBeenCalledWith('/api/admin/users/u-reg', {
+        method: 'PUT',
+        body: JSON.stringify({ role: 'user', autoApproveRequests: true }),
+      });
+    });
+  });
+
+  it('opens user permissions modal and toggles interactive search for regular user', async () => {
+    setupSWR({
+      users: [makeUser({ id: 'u-reg', plexUsername: 'RegularUser', autoApproveRequests: false, interactiveSearchAccess: false })],
+      autoApprove: false,
+      interactiveSearch: false,
+    });
+
+    fetchJSONMock.mockResolvedValueOnce({ success: true });
+
+    render(<AdminUsersPage />);
+
+    // Click the Manual badge to open permissions modal
+    fireEvent.click(await screen.findByText('Manual'));
+
+    // Find and click the interactive search toggle switch inside the modal
+    const toggle = await screen.findByRole('switch', { name: 'Interactive Search Access' });
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(fetchJSONMock).toHaveBeenCalledWith('/api/admin/users/u-reg', {
+        method: 'PUT',
+        body: JSON.stringify({ role: 'user', interactiveSearchAccess: true }),
+      });
+    });
+  });
+
+  it('shows global override message in permissions modal when global is on', async () => {
+    setupSWR({
+      users: [makeUser({ id: 'u-reg', plexUsername: 'RegularUser', autoApproveRequests: false })],
+      autoApprove: true,
+      interactiveSearch: true,
+    });
+
+    render(<AdminUsersPage />);
+
+    // Click the Global Default badge
+    fireEvent.click(await screen.findByText('Global Default'));
+
+    // Modal should show the global override message for both
+    expect(await screen.findByText('Controlled by global auto-approve setting')).toBeDefined();
+    expect(screen.getByText('Controlled by global interactive search setting')).toBeDefined();
+
+    // Both toggles should be disabled
+    const autoApproveToggle = screen.getByRole('switch', { name: 'Auto-Approve Requests' });
+    expect(autoApproveToggle).toHaveProperty('disabled', true);
+
+    const searchToggle = screen.getByRole('switch', { name: 'Interactive Search Access' });
+    expect(searchToggle).toHaveProperty('disabled', true);
+  });
+
+  it('edits a user role and saves changes', async () => {
+    const { mutateUsers } = setupSWR({
+      users: [
+        makeUser({
+          id: 'u2',
+          plexUsername: 'LocalUser',
+          plexId: 'local-1',
+          plexEmail: 'local@example.com',
+          autoApproveRequests: false,
+          _count: { requests: 2 },
+        }),
+      ],
+      autoApprove: true,
+    });
 
     fetchJSONMock.mockResolvedValueOnce({ success: true });
 
@@ -120,17 +302,11 @@ describe('AdminUsersPage', () => {
   });
 
   it('approves a pending user and refreshes lists', async () => {
-    const mutateUsers = vi.fn();
-    const mutatePending = vi.fn();
-
-    swrState.set('/api/admin/users', { data: { users: [] }, mutate: mutateUsers });
-    swrState.set('/api/admin/users/pending', {
-      data: {
-        users: [{ id: 'p1', plexUsername: 'Pending', plexEmail: null, authProvider: 'local', createdAt: new Date().toISOString() }],
-      },
-      mutate: mutatePending,
+    const { mutateUsers, mutatePending } = setupSWR({
+      users: [],
+      pendingUsers: [{ id: 'p1', plexUsername: 'Pending', plexEmail: null, authProvider: 'local', createdAt: new Date().toISOString() }],
+      autoApprove: true,
     });
-    swrState.set('/api/admin/settings/auto-approve', { data: { autoApproveRequests: true }, mutate: vi.fn() });
 
     fetchJSONMock.mockResolvedValueOnce({ success: true });
 

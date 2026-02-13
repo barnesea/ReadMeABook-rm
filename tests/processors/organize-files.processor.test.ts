@@ -346,6 +346,58 @@ describe('processOrganizeFiles', () => {
     );
   });
 
+  it('queues retry when organizer returns EPERM copy failure', async () => {
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.audiobook.findUnique.mockResolvedValue({
+      id: 'a-eperm',
+      title: 'Theo of Golden',
+      author: 'Allen Levi',
+      narrator: null,
+      coverArtUrl: null,
+      audibleAsin: 'B0FTT6KFKR',
+    });
+    // Organizer returns success: false with EPERM error (the fixed behavior)
+    organizerMock.organize.mockResolvedValue({
+      success: false,
+      targetPath: '/media/audiobooks/Fiction/Allen Levi/Theo of Golden B0FTT6KFKR',
+      filesMovedCount: 0,
+      errors: [
+        'Failed to copy Theo of Golden [B0FTT6KFKR].m4b: EPERM: operation not permitted, copyfile',
+        'No audio files were successfully copied to the target directory',
+      ],
+      audioFiles: [],
+    });
+    prismaMock.request.findFirst.mockResolvedValue({
+      importAttempts: 0,
+      maxImportRetries: 3,
+      deletedAt: null,
+    });
+    configMock.get.mockImplementation(async (key: string) => {
+      if (key === 'audiobook_path_template') return '{author}/{title} {asin}';
+      return null;
+    });
+
+    const { processOrganizeFiles } = await import('@/lib/processors/organize-files.processor');
+    const result = await processOrganizeFiles({
+      requestId: 'req-eperm',
+      audiobookId: 'a-eperm',
+      downloadPath: '/data/torrents/bookbit',
+      jobId: 'job-eperm',
+    });
+
+    // Should be identified as retryable and queued for re-import
+    expect(result.success).toBe(false);
+    expect(prismaMock.request.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'awaiting_import',
+          importAttempts: 1,
+          errorMessage: expect.stringContaining('EPERM'),
+        }),
+      })
+    );
+  });
+
   it('generates and stores filesHash after successful organization', async () => {
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.audiobook.findUnique.mockResolvedValue({

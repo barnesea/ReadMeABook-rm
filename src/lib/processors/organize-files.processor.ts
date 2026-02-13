@@ -9,6 +9,8 @@ import { getFileOrganizer } from '../utils/file-organizer';
 import { RMABLogger } from '../utils/logger';
 import { getLibraryService } from '../services/library';
 import { getConfigService } from '../services/config.service';
+import { getDownloadClientManager } from '../services/download-client-manager.service';
+import { CLIENT_PROTOCOL_MAP, DownloadClientType } from '../interfaces/download-client.interface';
 import { generateFilesHash } from '../utils/files-hash';
 import { fixEpubForKindle, cleanupFixedEpub } from '../utils/epub-fixer';
 import { removeEmptyParentDirectories } from '../utils/cleanup-helpers';
@@ -178,6 +180,9 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
       },
     });
 
+    // Apply post-import category to torrent client if configured
+    await applyPostImportCategory(requestId, logger);
+
     logger.info(`Request ${requestId} completed successfully - status: downloaded`, {
       success: true,
       message: 'Files organized successfully',
@@ -242,106 +247,8 @@ export async function processOrganizeFiles(payload: OrganizeFilesPayload): Promi
       );
     }
 
-    // Cleanup Usenet downloads if configured
-    try {
-      logger.info('Checking if cleanup is needed for this download');
-
-      // Get download history to find NZB ID and indexer
-      const downloadHistory = await prisma.downloadHistory.findFirst({
-        where: { requestId },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      logger.info(`Download history found: ${downloadHistory ? 'yes' : 'no'}`, {
-        hasNzbId: !!downloadHistory?.nzbId,
-        hasIndexerId: !!downloadHistory?.indexerId,
-        nzbId: downloadHistory?.nzbId || 'none',
-        indexerId: downloadHistory?.indexerId || 'none',
-      });
-
-      if (downloadHistory?.nzbId && downloadHistory?.indexerId) {
-        // Get indexer configuration
-        const indexersConfig = await configService.get('prowlarr_indexers');
-        logger.info(`Indexers config found: ${indexersConfig ? 'yes' : 'no'}`);
-
-        if (indexersConfig) {
-          const indexers: Array<{ id: number; protocol: string; removeAfterProcessing?: boolean }> = JSON.parse(indexersConfig);
-          const indexer = indexers.find(idx => idx.id === downloadHistory.indexerId);
-
-          logger.info(`Indexer found in config: ${indexer ? 'yes' : 'no'}`, {
-            indexerId: downloadHistory.indexerId,
-            protocol: indexer?.protocol || 'none',
-            removeAfterProcessing: indexer?.removeAfterProcessing ?? 'undefined',
-          });
-
-          // Check if this is a Usenet indexer with cleanup enabled
-          if (indexer && indexer.protocol?.toLowerCase() !== 'torrent' && indexer.removeAfterProcessing) {
-            logger.info(`Cleaning up NZB ${downloadHistory.nzbId} (cleanup enabled for indexer ${indexer.id})`);
-
-            // First, manually delete files from filesystem
-            if (downloadPath) {
-              logger.info(`Removing download files from filesystem: ${downloadPath}`);
-
-              const fs = await import('fs/promises');
-
-              try {
-                // Check if it's a file or directory
-                const stats = await fs.stat(downloadPath);
-
-                if (stats.isDirectory()) {
-                  // Remove directory and all contents
-                  await fs.rm(downloadPath, { recursive: true, force: true });
-                  logger.info(`Removed directory: ${downloadPath}`);
-                } else {
-                  // Remove single file
-                  await fs.unlink(downloadPath);
-                  logger.info(`Removed file: ${downloadPath}`);
-                }
-
-                // Clean up empty parent directories (e.g., empty category folders)
-                // Get download_dir as the boundary - never delete above this
-                const downloadDir = await configService.get('download_dir') || '/downloads';
-                const cleanupResult = await removeEmptyParentDirectories(downloadPath, {
-                  boundaryPath: downloadDir,
-                  logContext: jobId ? { jobId, context: 'CleanupParents' } : undefined,
-                });
-
-                if (cleanupResult.removedDirectories.length > 0) {
-                  logger.info(`Cleaned up ${cleanupResult.removedDirectories.length} empty parent directories`);
-                }
-              } catch (fsError) {
-                // File/directory might already be deleted or not exist
-                if ((fsError as NodeJS.ErrnoException).code === 'ENOENT') {
-                  logger.info(`Download path already deleted: ${downloadPath}`);
-                } else {
-                  throw fsError;
-                }
-              }
-            } else {
-              logger.warn(`No download path available, skipping filesystem deletion`);
-            }
-
-            // Then archive from SABnzbd history (hides from UI but preserves for troubleshooting)
-            // Note: We only archive from history, not queue. If the NZB is still in the queue
-            // when we're organizing files, something went wrong with the download monitoring.
-            const { getSABnzbdService } = await import('../integrations/sabnzbd.service');
-            const sabnzbd = await getSABnzbdService();
-
-            await sabnzbd.archiveCompletedNZB(downloadHistory.nzbId);
-
-            logger.info(`Successfully archived NZB ${downloadHistory.nzbId} and removed files`);
-          }
-        }
-      }
-    } catch (error) {
-      // Log error but don't fail the job - cleanup is optional
-      logger.warn(
-        `Failed to cleanup NZB download: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        {
-          error: error instanceof Error ? error.stack : undefined,
-        }
-      );
-    }
+    // Cleanup downloads if configured (uses IDownloadClient.postProcess for client-specific cleanup)
+    await cleanupDownloadAfterOrganize(requestId, downloadPath, configService, jobId, logger);
 
     return {
       success: true,
@@ -592,12 +499,20 @@ async function processEbookOrganization(
   const isIndexerDownload = downloadHistory?.downloadClient !== 'direct';
   logger.info(`Download source: ${downloadHistory?.downloadClient || 'unknown'} (indexer download: ${isIndexerDownload})`);
 
-  // Get file organizer and template
+  // Get file organizer and ebook-specific template (falls back to audiobook template)
   const organizer = await getFileOrganizer();
-  const templateConfig = await prisma.configuration.findUnique({
-    where: { key: 'audiobook_path_template' },
+  const ebookTemplateConfig = await prisma.configuration.findUnique({
+    where: { key: 'ebook_path_template' },
   });
-  const template = templateConfig?.value || '{author}/{title} {asin}';
+  let template: string;
+  if (ebookTemplateConfig?.value) {
+    template = ebookTemplateConfig.value;
+  } else {
+    const audiobookTemplateConfig = await prisma.configuration.findUnique({
+      where: { key: 'audiobook_path_template' },
+    });
+    template = audiobookTemplateConfig?.value || '{author}/{title} {asin}';
+  }
 
   // Check if Kindle EPUB fix is needed
   let effectiveDownloadPath = downloadPath;
@@ -694,6 +609,9 @@ async function processEbookOrganization(
     },
   });
 
+  // Apply post-import category to torrent client if configured
+  await applyPostImportCategory(requestId, logger);
+
   logger.info(`Ebook request ${requestId} completed - status: downloaded (terminal)`);
 
   // Send "available" notification for ebooks at downloaded state
@@ -704,7 +622,9 @@ async function processEbookOrganization(
     requestId,
     book.title,
     book.author,
-    request.user.plexUsername || 'Unknown User'
+    request.user.plexUsername || 'Unknown User',
+    undefined,
+    'ebook'
   ).catch((error) => {
     logger.error('Failed to queue notification', { error: error instanceof Error ? error.message : String(error) });
   });
@@ -739,99 +659,8 @@ async function processEbookOrganization(
     logger.debug(`Ebook library scan disabled (scanEnabled=${scanEnabled})`);
   }
 
-  // Cleanup Usenet downloads if configured (same logic as audiobooks)
-  try {
-    logger.info('Checking if cleanup is needed for ebook download');
-
-    // downloadHistory was already fetched earlier in this function
-    logger.info(`Download history found: ${downloadHistory ? 'yes' : 'no'}`, {
-      hasNzbId: !!downloadHistory?.nzbId,
-      hasIndexerId: !!downloadHistory?.indexerId,
-      nzbId: downloadHistory?.nzbId || 'none',
-      indexerId: downloadHistory?.indexerId || 'none',
-    });
-
-    if (downloadHistory?.nzbId && downloadHistory?.indexerId) {
-      // Get indexer configuration
-      const indexersConfig = await configService.get('prowlarr_indexers');
-      logger.info(`Indexers config found: ${indexersConfig ? 'yes' : 'no'}`);
-
-      if (indexersConfig) {
-        const indexers: Array<{ id: number; protocol: string; removeAfterProcessing?: boolean }> = JSON.parse(indexersConfig);
-        const indexer = indexers.find(idx => idx.id === downloadHistory.indexerId);
-
-        logger.info(`Indexer found in config: ${indexer ? 'yes' : 'no'}`, {
-          indexerId: downloadHistory.indexerId,
-          protocol: indexer?.protocol || 'none',
-          removeAfterProcessing: indexer?.removeAfterProcessing ?? 'undefined',
-        });
-
-        // Check if this is a Usenet indexer with cleanup enabled
-        if (indexer && indexer.protocol?.toLowerCase() !== 'torrent' && indexer.removeAfterProcessing) {
-          logger.info(`Cleaning up NZB ${downloadHistory.nzbId} (cleanup enabled for indexer ${indexer.id})`);
-
-          // First, manually delete files from filesystem
-          if (downloadPath) {
-            logger.info(`Removing download files from filesystem: ${downloadPath}`);
-
-            const fs = await import('fs/promises');
-
-            try {
-              // Check if it's a file or directory
-              const stats = await fs.stat(downloadPath);
-
-              if (stats.isDirectory()) {
-                // Remove directory and all contents
-                await fs.rm(downloadPath, { recursive: true, force: true });
-                logger.info(`Removed directory: ${downloadPath}`);
-              } else {
-                // Remove single file
-                await fs.unlink(downloadPath);
-                logger.info(`Removed file: ${downloadPath}`);
-              }
-
-              // Clean up empty parent directories (e.g., empty category folders)
-              // Get download_dir as the boundary - never delete above this
-              const downloadDir = await configService.get('download_dir') || '/downloads';
-              const cleanupResult = await removeEmptyParentDirectories(downloadPath, {
-                boundaryPath: downloadDir,
-                logContext: jobId ? { jobId, context: 'CleanupParents' } : undefined,
-              });
-
-              if (cleanupResult.removedDirectories.length > 0) {
-                logger.info(`Cleaned up ${cleanupResult.removedDirectories.length} empty parent directories`);
-              }
-            } catch (fsError) {
-              // File/directory might already be deleted or not exist
-              if ((fsError as NodeJS.ErrnoException).code === 'ENOENT') {
-                logger.info(`Download path already deleted: ${downloadPath}`);
-              } else {
-                throw fsError;
-              }
-            }
-          } else {
-            logger.warn(`No download path available, skipping filesystem deletion`);
-          }
-
-          // Then archive from SABnzbd history (hides from UI but preserves for troubleshooting)
-          const { getSABnzbdService } = await import('../integrations/sabnzbd.service');
-          const sabnzbd = await getSABnzbdService();
-
-          await sabnzbd.archiveCompletedNZB(downloadHistory.nzbId);
-
-          logger.info(`Successfully archived NZB ${downloadHistory.nzbId} and removed files`);
-        }
-      }
-    }
-  } catch (error) {
-    // Log error but don't fail the job - cleanup is optional
-    logger.warn(
-      `Failed to cleanup NZB download: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      {
-        error: error instanceof Error ? error.stack : undefined,
-      }
-    );
-  }
+  // Cleanup downloads if configured (uses IDownloadClient.postProcess for client-specific cleanup)
+  await cleanupDownloadAfterOrganize(requestId, downloadPath, configService, jobId, logger);
 
   return {
     success: true,
@@ -929,6 +758,182 @@ async function createEbookRequestIfEnabled(
   } catch (error) {
     // Don't fail the main audiobook organization if ebook request creation fails
     logger.error(`Failed to create ebook request: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// =========================================================================
+// POST-IMPORT CATEGORY
+// =========================================================================
+
+/**
+ * Apply post-import category to the download client after successful import.
+ * Only applies to torrent clients (qBittorrent/Transmission) when configured.
+ * Non-fatal: logs a warning on failure but does not fail the job.
+ */
+async function applyPostImportCategory(
+  requestId: string,
+  logger: RMABLogger
+): Promise<void> {
+  try {
+    // Get download history to find client type and download ID
+    const downloadHistory = await prisma.downloadHistory.findFirst({
+      where: { requestId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!downloadHistory?.downloadClientId || !downloadHistory?.downloadClient) {
+      return;
+    }
+
+    const clientType = downloadHistory.downloadClient as DownloadClientType;
+
+    // Only applies to torrent clients
+    const protocol = CLIENT_PROTOCOL_MAP[clientType];
+    if (protocol !== 'torrent') {
+      return;
+    }
+
+    // Get client config and check if postImportCategory is set
+    const configService = getConfigService();
+    const manager = getDownloadClientManager(configService);
+    const clients = await manager.getAllClients();
+    const clientConfig = clients.find(c => c.enabled && c.type === clientType);
+
+    if (!clientConfig?.postImportCategory) {
+      return;
+    }
+
+    logger.info(`Applying post-import category "${clientConfig.postImportCategory}" to download ${downloadHistory.downloadClientId}`);
+
+    const service = await manager.createClientFromConfig(clientConfig);
+    await service.setCategory(downloadHistory.downloadClientId, clientConfig.postImportCategory);
+
+    logger.info(`Post-import category applied successfully`);
+  } catch (error) {
+    logger.warn(`Failed to apply post-import category: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// =========================================================================
+// DOWNLOAD CLEANUP
+// =========================================================================
+
+/**
+ * Cleanup download files and archive from download client after successful organization.
+ * Uses the IDownloadClient.postProcess() method for client-specific cleanup (e.g., SABnzbd archive).
+ * Shared between audiobook and ebook organization flows.
+ */
+async function cleanupDownloadAfterOrganize(
+  requestId: string,
+  downloadPath: string,
+  configService: any,
+  jobId: string | undefined,
+  logger: RMABLogger
+): Promise<void> {
+  try {
+    logger.info('Checking if cleanup is needed for this download');
+
+    // Get download history to find client ID and indexer
+    const downloadHistory = await prisma.downloadHistory.findFirst({
+      where: { requestId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    logger.info(`Download history found: ${downloadHistory ? 'yes' : 'no'}`, {
+      hasDownloadClientId: !!downloadHistory?.downloadClientId,
+      hasIndexerId: !!downloadHistory?.indexerId,
+      downloadClient: downloadHistory?.downloadClient || 'none',
+    });
+
+    if (!downloadHistory?.indexerId || !downloadHistory?.downloadClientId) {
+      return;
+    }
+
+    // Get indexer configuration
+    const indexersConfig = await configService.get('prowlarr_indexers');
+    if (!indexersConfig) {
+      return;
+    }
+
+    const indexers: Array<{ id: number; protocol: string; removeAfterProcessing?: boolean }> = JSON.parse(indexersConfig);
+    const indexer = indexers.find(idx => idx.id === downloadHistory.indexerId);
+
+    logger.info(`Indexer found in config: ${indexer ? 'yes' : 'no'}`, {
+      indexerId: downloadHistory.indexerId,
+      protocol: indexer?.protocol || 'none',
+      removeAfterProcessing: indexer?.removeAfterProcessing ?? 'undefined',
+    });
+
+    // Check if this is a non-torrent indexer with cleanup enabled
+    if (!indexer || indexer.protocol?.toLowerCase() === 'torrent' || !indexer.removeAfterProcessing) {
+      return;
+    }
+
+    logger.info(`Cleaning up download ${downloadHistory.downloadClientId} (cleanup enabled for indexer ${indexer.id})`);
+
+    // First, manually delete files from filesystem
+    if (downloadPath) {
+      logger.info(`Removing download files from filesystem: ${downloadPath}`);
+
+      const fs = await import('fs/promises');
+
+      try {
+        const stats = await fs.stat(downloadPath);
+
+        if (stats.isDirectory()) {
+          await fs.rm(downloadPath, { recursive: true, force: true });
+          logger.info(`Removed directory: ${downloadPath}`);
+        } else {
+          await fs.unlink(downloadPath);
+          logger.info(`Removed file: ${downloadPath}`);
+        }
+
+        // Clean up empty parent directories
+        const downloadDir = await configService.get('download_dir') || '/downloads';
+        const cleanupResult = await removeEmptyParentDirectories(downloadPath, {
+          boundaryPath: downloadDir,
+          logContext: jobId ? { jobId, context: 'CleanupParents' } : undefined,
+        });
+
+        if (cleanupResult.removedDirectories.length > 0) {
+          logger.info(`Cleaned up ${cleanupResult.removedDirectories.length} empty parent directories`);
+        }
+      } catch (fsError) {
+        if ((fsError as NodeJS.ErrnoException).code === 'ENOENT') {
+          logger.info(`Download path already deleted: ${downloadPath}`);
+        } else {
+          throw fsError;
+        }
+      }
+    } else {
+      logger.warn(`No download path available, skipping filesystem deletion`);
+    }
+
+    // Then use the download client interface for client-specific post-processing
+    // (e.g., usenet clients archive from history, torrent clients are a no-op)
+    const clientType = downloadHistory.downloadClient;
+    if (clientType && clientType !== 'direct') {
+      const manager = getDownloadClientManager(configService);
+      const protocol = CLIENT_PROTOCOL_MAP[clientType as DownloadClientType];
+      if (!protocol) {
+        logger.warn(`Unknown download client type: ${clientType}, skipping post-processing`);
+        return;
+      }
+      const client = await manager.getClientServiceForProtocol(protocol as 'torrent' | 'usenet');
+
+      if (client) {
+        await client.postProcess(downloadHistory.downloadClientId);
+        logger.info(`Successfully post-processed download ${downloadHistory.downloadClientId} via ${client.clientType}`);
+      }
+    }
+  } catch (error) {
+    // Log error but don't fail the job - cleanup is optional
+    logger.warn(
+      `Failed to cleanup download: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      {
+        error: error instanceof Error ? error.stack : undefined,
+      }
+    );
   }
 }
 

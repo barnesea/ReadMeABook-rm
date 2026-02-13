@@ -10,7 +10,7 @@ import { createJobQueueMock } from '../helpers/job-queue';
 const prismaMock = createPrismaMock();
 const configMock = vi.hoisted(() => ({ get: vi.fn() }));
 const jobQueueMock = createJobQueueMock();
-const prowlarrMock = vi.hoisted(() => ({ search: vi.fn() }));
+const prowlarrMock = vi.hoisted(() => ({ search: vi.fn(), searchWithVariations: vi.fn() }));
 
 vi.mock('@/lib/db', () => ({
   prisma: prismaMock,
@@ -44,7 +44,7 @@ describe('processSearchIndexers', () => {
       }
       return null;
     });
-    prowlarrMock.search.mockResolvedValue([]);
+    prowlarrMock.searchWithVariations.mockResolvedValue([]);
     prismaMock.request.update.mockResolvedValue({});
 
     const { processSearchIndexers } = await import('@/lib/processors/search-indexers.processor');
@@ -73,7 +73,7 @@ describe('processSearchIndexers', () => {
       return null;
     });
 
-    prowlarrMock.search.mockResolvedValue([
+    prowlarrMock.searchWithVariations.mockResolvedValue([
       {
         indexer: 'Indexer',
         indexerId: 1,

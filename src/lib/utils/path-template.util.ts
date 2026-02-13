@@ -38,6 +38,14 @@ const VALID_VARIABLES = ['author', 'title', 'narrator', 'asin', 'year', 'series'
 const INVALID_PATH_CHARS = /[<>:"|?*]/;
 
 /**
+ * Placeholder characters for escaped braces during substitution.
+ * Uses Unicode Private Use Area characters that won't appear in metadata
+ * and won't be affected by path cleanup operations.
+ */
+const LBRACE_PLACEHOLDER = '\uE000';
+const RBRACE_PLACEHOLDER = '\uE001';
+
+/**
  * Sanitize a path component by removing invalid characters
  * Reuses logic from file-organizer.ts
  *
@@ -87,6 +95,10 @@ export function substituteTemplate(
 ): string {
   let result = template;
 
+  // Replace escaped braces with placeholders before any processing,
+  // so they survive the variable substitution and path cleanup steps
+  result = result.replace(/\\\{/g, LBRACE_PLACEHOLDER).replace(/\\\}/g, RBRACE_PLACEHOLDER);
+
   // Substitute each variable
   for (const key of VALID_VARIABLES) {
     const value = variables[key as keyof TemplateVariables];
@@ -119,6 +131,11 @@ export function substituteTemplate(
     .map(part => part.trim())
     .filter(part => part.length > 0)
     .join('/');
+
+  // Resolve escaped brace placeholders as the final step,
+  // after all variable substitution and path cleanup is complete
+  result = result.replace(new RegExp(LBRACE_PLACEHOLDER, 'g'), '{');
+  result = result.replace(new RegExp(RBRACE_PLACEHOLDER, 'g'), '}');
 
   return result;
 }
@@ -153,16 +170,20 @@ export function validateTemplate(template: string): ValidationResult {
     };
   }
 
-  // Check for absolute paths
-  if (template.startsWith('/') || template.startsWith('\\') || /^[a-zA-Z]:/.test(template)) {
+  // Check for absolute paths (backslash followed by { or } is a brace escape, not a path)
+  if (template.startsWith('/') || /^\\(?![{}])/.test(template) || /^[a-zA-Z]:/.test(template)) {
     return {
       valid: false,
       error: 'Template must be a relative path (no absolute paths like "/" or "C:\\")'
     };
   }
 
-  // Extract all variables from template
-  const variableMatches = template.match(/\{[^}]+\}/g);
+  // Strip escaped braces (\{ and \}) before parsing so they don't interfere
+  // with variable extraction or character validation
+  const templateWithoutEscapedBraces = template.replace(/\\[{}]/g, '');
+
+  // Extract all variables from the stripped template
+  const variableMatches = templateWithoutEscapedBraces.match(/\{[^}]+\}/g);
 
   if (variableMatches) {
     for (const match of variableMatches) {
@@ -178,7 +199,7 @@ export function validateTemplate(template: string): ValidationResult {
   }
 
   // Remove valid variables temporarily to check for invalid characters
-  let templateWithoutVars = template;
+  let templateWithoutVars = templateWithoutEscapedBraces;
   for (const varName of VALID_VARIABLES) {
     templateWithoutVars = templateWithoutVars.replace(new RegExp(`\\{${varName}\\}`, 'g'), '');
   }
@@ -192,8 +213,9 @@ export function validateTemplate(template: string): ValidationResult {
     };
   }
 
-  // Check for backslashes (Windows-style paths)
-  if (templateWithoutVars.includes('\\')) {
+  // Check for backslashes that are not brace escapes (Windows-style paths)
+  // We check the original template: any backslash NOT followed by { or } is invalid
+  if (/\\(?![{}])/.test(template)) {
     return {
       valid: false,
       error: 'Use forward slashes (/) for path separators, not backslashes (\\)'

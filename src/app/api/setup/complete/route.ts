@@ -9,11 +9,14 @@ import bcrypt from 'bcrypt';
 import { generateAccessToken, generateRefreshToken } from '@/lib/utils/jwt';
 import { getEncryptionService } from '@/lib/services/encryption.service';
 import { getPlexService } from '@/lib/integrations/plex.service';
+import { getClientDisplayName } from '@/lib/interfaces/download-client.interface';
+import { requireSetupIncomplete } from '@/lib/middleware/auth';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Setup.Complete');
 
 export async function POST(request: NextRequest) {
+  return requireSetupIncomplete(request, async (req) => {
   try {
     const {
       backendMode,
@@ -28,7 +31,7 @@ export async function POST(request: NextRequest) {
       downloadClient,
       paths,
       bookdate,
-    } = await request.json();
+    } = await req.json();
 
     // Validate backend mode
     if (!backendMode || !['plex', 'audiobookshelf'].includes(backendMode)) {
@@ -401,7 +404,7 @@ export async function POST(request: NextRequest) {
       downloadClientsArray = [{
         id: `temp-${Date.now()}`,
         type: downloadClient.type,
-        name: downloadClient.type === 'qbittorrent' ? 'qBittorrent' : 'SABnzbd',
+        name: getClientDisplayName(downloadClient.type),
         enabled: true,
         url: downloadClient.url,
         username: downloadClient.username,
@@ -562,4 +565,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

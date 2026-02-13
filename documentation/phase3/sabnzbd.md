@@ -19,7 +19,7 @@ Free, open-source Usenet/NZB download client with comprehensive Web API. Industr
 **Format:** All requests use `output=json` for JSON responses
 
 **GET /api?mode=version&output=json&apikey={key}** - Get SABnzbd version
-**GET /api?mode=addurl&name={url}&cat={category}&output=json&apikey={key}** - Add NZB by URL
+**POST /api (multipart: mode=addfile, nzbfile={binary})** - Add NZB by file upload (RMAB downloads NZB from Prowlarr, uploads to SABnzbd)
 **GET /api?mode=queue&output=json&apikey={key}** - Get active downloads
 **GET /api?mode=history&limit=100&output=json&apikey={key}** - Get completed/failed downloads
 **GET /api?mode=pause&value={nzbId}&output=json&apikey={key}** - Pause download
@@ -37,7 +37,7 @@ Free, open-source Usenet/NZB download client with comprehensive Web API. Industr
 - `download_client_type` - Must be 'sabnzbd'
 - `download_client_url` - SABnzbd Web UI URL (supports HTTP and HTTPS)
 - `download_client_password` - API key (reuses password field)
-- `download_dir` - Download save path (passed to SABnzbd category)
+- `download_dir` - Base download save path (joined with per-client `customPath` if configured)
 
 **Optional (SSL/TLS):**
 - `download_client_disable_ssl_verify` - Disable SSL certificate verification (boolean as string "true"/"false", default: "false")
@@ -58,7 +58,8 @@ Validation: All required fields checked before service initialization. Path mapp
 Service uses singleton pattern. When settings change, singleton invalidated to force reload:
 - `invalidateSABnzbdService()` called after updating settings
 - Forces service to re-read database config
-- Ensures category and credentials are always current
+- Ensures category, credentials, and `customPath` resolution are always current
+- Singleton getter resolves `customPath` from client config (consistent with manager's `createService()`)
 
 ## Category Management
 
@@ -67,16 +68,21 @@ Service uses singleton pattern. When settings change, singleton invalidated to f
 **Save Path Synchronization:**
 - Category created/updated on every download (matches qBittorrent behavior)
 - Fetches SABnzbd's `complete_dir` setting via API to understand download location
-- Applies remote path mapping to translate RMAB's `download_dir` to SABnzbd's perspective
+- Applies remote path mapping to translate RMAB's resolved download path to SABnzbd's perspective
 - Calculates optimal category path (relative, absolute, or root)
+- Resolved path includes per-client `customPath` if configured (e.g., `/downloads/usenet`)
 
 **Smart Path Calculation:**
 1. Get SABnzbd's `complete_dir` from `misc.complete_dir` config
-2. Apply `PathMapper.reverseTransform()` to RMAB's `download_dir`
+2. Apply `PathMapper.reverseTransform()` to RMAB's resolved download path (`download_dir` + `customPath`)
 3. Compare transformed path to `complete_dir`:
    - **Match:** Use empty string (downloads go to complete_dir root)
-   - **Subdirectory:** Use relative path (e.g., `audiobooks`)
-   - **Different:** Use absolute path (e.g., `/mnt/media/audiobooks`)
+   - **Subdirectory:** Use relative path (e.g., `usenet`)
+   - **Different:** Use absolute path (e.g., `/mnt/media/usenet`)
+
+**Per-Client Custom Path:**
+- If `customPath` is set (e.g., `usenet`), category path calculated from `/downloads/usenet`
+- See [download-clients.md](./download-clients.md#per-client-custom-download-path) for details
 
 ## Post-Processing
 
@@ -290,9 +296,20 @@ organizePath = PathMapper.transform(sabPath, config)
 | Path Mapping | ✅ Bidirectional (same as qBit) | ✅ Bidirectional |
 | Category Sync | ✅ Every download | ✅ Every download |
 
+## NZB Download Proxy
+
+**RMAB proxies NZB files** — SABnzbd does not need network access to Prowlarr.
+
+Prowlarr returns download URLs that point back to itself (proxy URLs like `http://prowlarr:9696/3/download?apikey=...&link=...`).
+RMAB downloads the NZB file content from that URL, then uploads it to SABnzbd via `mode=addfile` (multipart POST).
+This matches qBittorrent's pattern where RMAB downloads `.torrent` files and uploads the binary content.
+
+**Result:** Download clients only need network access to RMAB. No direct Prowlarr connectivity required.
+
 ## Tech Stack
 
-- axios (HTTP client)
+- axios (HTTP client, NZB file download)
+- form-data (multipart file upload to SABnzbd)
 - Node.js https (SSL/TLS agent)
 - JSON API responses
 

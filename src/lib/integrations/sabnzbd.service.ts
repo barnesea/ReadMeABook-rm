@@ -5,8 +5,18 @@
 
 import axios, { AxiosInstance } from 'axios';
 import https from 'https';
+import FormData from 'form-data';
 import { RMABLogger } from '@/lib/utils/logger';
 import { PathMapper, PathMappingConfig } from '@/lib/utils/path-mapper';
+import {
+  IDownloadClient,
+  DownloadClientType,
+  ProtocolType,
+  DownloadInfo,
+  DownloadStatus,
+  AddDownloadOptions,
+  ConnectionTestResult,
+} from '../interfaces/download-client.interface';
 
 const logger = RMABLogger.create('SABnzbd');
 
@@ -81,7 +91,10 @@ export interface DownloadProgress {
   state: string;
 }
 
-export class SABnzbdService {
+export class SABnzbdService implements IDownloadClient {
+  readonly clientType: DownloadClientType = 'sabnzbd';
+  readonly protocol: ProtocolType = 'usenet';
+
   private client: AxiosInstance;
   private baseUrl: string;
   private apiKey: string;
@@ -123,13 +136,13 @@ export class SABnzbdService {
   /**
    * Test connection to SABnzbd
    */
-  async testConnection(): Promise<{ success: boolean; version?: string; error?: string }> {
+  async testConnection(): Promise<ConnectionTestResult> {
     try {
       // Validate API key is not empty
       if (!this.apiKey || this.apiKey.trim() === '') {
         return {
           success: false,
-          error: 'API key is required for SABnzbd',
+          message: 'API key is required for SABnzbd',
         };
       }
 
@@ -151,7 +164,7 @@ export class SABnzbdService {
         const errorMsg = response.data?.error || 'Authentication failed';
         return {
           success: false,
-          error: errorMsg.includes('API Key')
+          message: errorMsg.includes('API Key')
             ? 'Invalid API key. Check your SABnzbd configuration (Config → General → API Key).'
             : errorMsg,
         };
@@ -160,7 +173,7 @@ export class SABnzbdService {
       // Queue endpoint requires auth - if we got here, API key is valid
       // Now get the version
       const version = await this.getVersion();
-      return { success: true, version };
+      return { success: true, version, message: `Connected to SABnzbd v${version}` };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -168,28 +181,28 @@ export class SABnzbdService {
       if (errorMessage.includes('ECONNREFUSED')) {
         return {
           success: false,
-          error: 'Connection refused. Is SABnzbd running and accessible at this URL?',
+          message: 'Connection refused. Is SABnzbd running and accessible at this URL?',
         };
       } else if (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('ENOTFOUND')) {
         return {
           success: false,
-          error: 'Connection timed out. Check the URL and network connectivity.',
+          message: 'Connection timed out. Check the URL and network connectivity.',
         };
       } else if (errorMessage.includes('certificate') || errorMessage.includes('SSL') || errorMessage.includes('TLS')) {
         return {
           success: false,
-          error: 'SSL/TLS certificate error. Enable "Disable SSL verification" if using self-signed certificates.',
+          message: 'SSL/TLS certificate error. Enable "Disable SSL verification" if using self-signed certificates.',
         };
       } else if (errorMessage.includes('API Key Incorrect') || errorMessage.includes('API Key Required')) {
         return {
           success: false,
-          error: 'Invalid API key. Check your SABnzbd configuration (Config → General → API Key).',
+          message: 'Invalid API key. Check your SABnzbd configuration (Config → General → API Key).',
         };
       }
 
       return {
         success: false,
-        error: errorMessage,
+        message: errorMessage,
       };
     }
   }
@@ -447,8 +460,16 @@ export class SABnzbdService {
   }
 
   /**
-   * Add NZB by URL
-   * Returns the NZB ID
+   * Add NZB to SABnzbd
+   *
+   * Downloads the NZB file content from the source URL (typically a Prowlarr proxy URL)
+   * and uploads it directly to SABnzbd via mode=addfile. This ensures SABnzbd does not
+   * need network access to Prowlarr — RMAB acts as the intermediary, matching the pattern
+   * used by qBittorrent for .torrent files.
+   *
+   * @param url - NZB download URL (usually a Prowlarr proxy URL)
+   * @param options - Category, priority, and pause options
+   * @returns SABnzbd NZB ID (nzo_id)
    */
   async addNZB(url: string, options?: AddNZBOptions): Promise<string> {
     logger.info(`Adding NZB from URL: ${url.substring(0, 150)}...`);
@@ -459,20 +480,70 @@ export class SABnzbdService {
     // This syncs the category path with SABnzbd's complete_dir and handles path mapping
     await this.ensureCategory();
 
-    const response = await this.client.get('/api', {
-      params: {
-        mode: 'addurl',
-        name: url,
-        cat: category,
-        priority: this.mapPriority(options?.priority),
-        pp: '3', // Post-processing: +Repair, +Unpack, +Delete
-        output: 'json',
-        apikey: this.apiKey,
-      },
+    // Download the NZB file content from the source URL
+    // This decouples SABnzbd from needing direct network access to Prowlarr
+    let nzbBuffer: Buffer;
+    let filename: string;
+
+    try {
+      logger.info('Downloading NZB file from source URL...');
+
+      const nzbResponse = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        maxRedirects: 5,
+        // Use the same SSL settings as the SABnzbd client if the NZB URL
+        // happens to be served over HTTPS with a self-signed cert
+        httpsAgent: url.startsWith('https') ? this.httpsAgent : undefined,
+      });
+
+      nzbBuffer = Buffer.from(nzbResponse.data);
+
+      if (nzbBuffer.length === 0) {
+        throw new Error('NZB file is empty (0 bytes)');
+      }
+
+      logger.info(`Downloaded NZB file: ${nzbBuffer.length} bytes`);
+
+      // Extract filename from Content-Disposition header, URL path, or use fallback
+      filename = this.extractNZBFilename(url, nzbResponse.headers['content-disposition']);
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        if (status) {
+          throw new Error(`Failed to download NZB file: HTTP ${status} from source URL`);
+        }
+        if (error.code === 'ECONNREFUSED') {
+          throw new Error('Failed to download NZB file: Connection refused. Is Prowlarr running?');
+        }
+        if (error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
+          throw new Error('Failed to download NZB file: Connection timed out. Check Prowlarr URL and network.');
+        }
+      }
+      throw error;
+    }
+
+    // Upload NZB file content to SABnzbd via mode=addfile (multipart POST)
+    const formData = new FormData();
+    formData.append('nzbfile', nzbBuffer, {
+      filename,
+      contentType: 'application/x-nzb',
+    });
+    formData.append('mode', 'addfile');
+    formData.append('cat', category);
+    formData.append('priority', this.mapPriority(options?.priority));
+    formData.append('pp', '3'); // Post-processing: +Repair, +Unpack, +Delete
+    formData.append('output', 'json');
+    formData.append('apikey', this.apiKey);
+
+    const response = await this.client.post('/api', formData, {
+      headers: formData.getHeaders(),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
     });
 
     if (response.data?.status === false) {
-      throw new Error(response.data.error || 'Failed to add NZB');
+      throw new Error(response.data.error || 'Failed to add NZB to SABnzbd');
     }
 
     const nzbIds = response.data?.nzo_ids;
@@ -484,6 +555,39 @@ export class SABnzbdService {
     logger.info(`Added NZB: ${nzbId}`);
 
     return nzbId;
+  }
+
+  /**
+   * Extract a usable filename for the NZB upload.
+   * Tries Content-Disposition header first, then URL path, then falls back to a default.
+   */
+  private extractNZBFilename(url: string, contentDisposition?: string): string {
+    // Try Content-Disposition header (e.g., 'attachment; filename="My.Audiobook.nzb"')
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename[*]?=(?:UTF-8''|"?)([^";]+)/i);
+      if (match?.[1]) {
+        const decoded = decodeURIComponent(match[1].replace(/"+$/, ''));
+        if (decoded) {
+          logger.debug(`Filename from Content-Disposition: ${decoded}`);
+          return decoded.endsWith('.nzb') ? decoded : `${decoded}.nzb`;
+        }
+      }
+    }
+
+    // Try extracting from URL path (before query params)
+    try {
+      const urlPath = new URL(url).pathname;
+      const basename = urlPath.split('/').pop();
+      if (basename && basename.length > 0 && basename !== 'download') {
+        const decoded = decodeURIComponent(basename);
+        logger.debug(`Filename from URL path: ${decoded}`);
+        return decoded.endsWith('.nzb') ? decoded : `${decoded}.nzb`;
+      }
+    } catch {
+      // URL parsing failed, fall through to default
+    }
+
+    return 'download.nzb';
   }
 
   /**
@@ -663,6 +767,118 @@ export class SABnzbdService {
     }
   }
 
+  // =========================================================================
+  // IDownloadClient Implementation
+  // =========================================================================
+
+  /**
+   * Add a download via the unified interface.
+   * Delegates to addNZB with mapped options.
+   */
+  async addDownload(url: string, options?: AddDownloadOptions): Promise<string> {
+    const priorityMap: Record<string, 'low' | 'normal' | 'high' | 'force'> = {
+      low: 'low',
+      normal: 'normal',
+      high: 'high',
+      force: 'force',
+    };
+
+    return this.addNZB(url, {
+      category: options?.category,
+      priority: options?.priority ? priorityMap[options.priority] || 'normal' : undefined,
+      paused: options?.paused,
+    });
+  }
+
+  /**
+   * Get download status via the unified interface.
+   * Checks both queue and history to find the NZB.
+   */
+  async getDownload(id: string): Promise<DownloadInfo | null> {
+    const nzbInfo = await this.getNZB(id);
+    if (!nzbInfo) {
+      return null;
+    }
+    return this.mapNZBInfoToDownloadInfo(nzbInfo);
+  }
+
+  /** Pause a download via the unified interface */
+  async pauseDownload(id: string): Promise<void> {
+    return this.pauseNZB(id);
+  }
+
+  /** Resume a download via the unified interface */
+  async resumeDownload(id: string): Promise<void> {
+    return this.resumeNZB(id);
+  }
+
+  /** Delete a download via the unified interface */
+  async deleteDownload(id: string, deleteFiles: boolean = false): Promise<void> {
+    return this.deleteNZB(id, deleteFiles);
+  }
+
+  /**
+   * Post-download cleanup via the unified interface.
+   * Archives the completed NZB from SABnzbd history.
+   */
+  async postProcess(id: string): Promise<void> {
+    await this.archiveCompletedNZB(id);
+  }
+
+  /** Not applicable for usenet clients */
+  async getCategories(): Promise<string[]> {
+    return [];
+  }
+
+  /** Not applicable for usenet clients */
+  async setCategory(_id: string, _category: string): Promise<void> {
+    // No-op: post-import category is scoped to torrent clients
+  }
+
+  /**
+   * Map NZBInfo to the unified DownloadInfo format.
+   */
+  private mapNZBInfoToDownloadInfo(nzb: NZBInfo): DownloadInfo {
+    return {
+      id: nzb.nzbId,
+      name: nzb.name,
+      size: nzb.size,
+      bytesDownloaded: Math.round(nzb.size * nzb.progress),
+      progress: nzb.progress,
+      status: this.mapNZBStatusToDownloadStatus(nzb.status),
+      downloadSpeed: nzb.downloadSpeed,
+      eta: nzb.timeLeft,
+      category: nzb.category,
+      downloadPath: nzb.downloadPath,
+      completedAt: nzb.completedAt,
+      errorMessage: nzb.errorMessage,
+      // Usenet has no seeding concept
+      seedingTime: undefined,
+      ratio: undefined,
+    };
+  }
+
+  /**
+   * Map SABnzbd NZB status to unified DownloadStatus.
+   */
+  private mapNZBStatusToDownloadStatus(status: NZBStatus): DownloadStatus {
+    const statusMap: Record<NZBStatus, DownloadStatus> = {
+      downloading: 'downloading',
+      queued: 'queued',
+      paused: 'paused',
+      extracting: 'processing',
+      completed: 'completed',
+      failed: 'failed',
+      repairing: 'processing',
+    };
+
+    return statusMap[status] || 'downloading';
+  }
+
+  // =========================================================================
+  // Legacy Methods (used internally and by direct callers)
+  // =========================================================================
+
   /**
    * Get download progress from queue item
    */
@@ -796,8 +1012,11 @@ export async function getSABnzbdService(): Promise<SABnzbdService> {
       throw new Error(`Expected SABnzbd client but found ${clientConfig.type}`);
     }
 
-    // Get download_dir from main config
-    const downloadDir = await configService.get('download_dir') || '/downloads';
+    // Get download_dir from main config, applying customPath if configured
+    const baseDir = await configService.get('download_dir') || '/downloads';
+    const downloadDir = clientConfig.customPath
+      ? require('path').join(baseDir, clientConfig.customPath)
+      : baseDir;
 
     logger.debug('RMAB download_dir from config', { downloadDir });
 

@@ -8,6 +8,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { isTokenExpired, getRefreshTimeMs } from '@/lib/utils/jwt-client';
 
+interface UserPermissions {
+  interactiveSearch: boolean;
+}
+
 interface User {
   id: string;
   plexId: string;
@@ -16,6 +20,7 @@ interface User {
   role: string;
   avatarUrl?: string;
   authProvider?: string | null; // 'plex' | 'oidc' | 'local' | null
+  permissions?: UserPermissions;
 }
 
 interface AuthContextType {
@@ -73,7 +78,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const storedRefreshToken = localStorage.getItem('refreshToken');
         if (storedRefreshToken && !isTokenExpired(storedRefreshToken)) {
           // Refresh token is still valid, attempt refresh
-          refreshTokenInternal(storedRefreshToken).finally(() => {
+          refreshTokenInternal(storedRefreshToken).then(() => {
+            // Fetch fresh user data from server to pick up role changes,
+            // avatar updates, etc. - mirrors the non-expired path below.
+            const currentToken = localStorage.getItem('accessToken');
+            if (currentToken) {
+              fetch('/api/auth/me', {
+                headers: { 'Authorization': `Bearer ${currentToken}` },
+              })
+                .then((res) => res.json())
+                .then((data) => {
+                  if (data.user) {
+                    setUser(data.user);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                  }
+                })
+                .catch((error) => {
+                  console.error('Failed to fetch fresh user data:', error);
+                });
+            }
+          }).finally(() => {
             setIsLoading(false);
           });
           return;
@@ -134,6 +158,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         setAccessToken(data.accessToken);
         localStorage.setItem('accessToken', data.accessToken);
+
+        // Restore user state from localStorage if not already in React state.
+        // This is critical for the mount-time refresh path: when the access
+        // token has expired but the refresh token is still valid, the mount
+        // effect calls refreshTokenInternal without ever calling setUser,
+        // leaving user as null and the app appearing logged-out.
+        const storedUserData = localStorage.getItem('user');
+        if (storedUserData) {
+          setUser(JSON.parse(storedUserData));
+        }
 
         // Schedule next refresh
         scheduleTokenRefresh(data.accessToken);

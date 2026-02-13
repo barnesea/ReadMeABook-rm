@@ -75,7 +75,7 @@ docker-compose logs -f app
 ## 📊 Feature Highlights
 
 ### AI-Powered Recommendations
-- **Providers:** OpenAI (GPT-4o+) or Claude (Sonnet 4.5, Opus 4, Haiku)
+- **Providers:** OpenAI (GPT-4+) or Claude (dynamically fetched from Anthropic Models API)
 - **Personalization:** Based on your Plex library + swipe history
 - **Context:** Max 50 books (40 library + 10 swipes)
 - **Filtering:** Excludes books already in library, already requested, or already swiped

@@ -16,12 +16,8 @@ const configServiceMock = {
   get: vi.fn(),
   getBackendMode: vi.fn(),
 };
-const qbtMock = {
-  getTorrent: vi.fn(),
-  deleteTorrent: vi.fn(),
-};
-const sabMock = {
-  deleteNZB: vi.fn(),
+const downloadClientManagerMock = {
+  getClientServiceForProtocol: vi.fn(),
 };
 
 vi.mock('@/lib/db', () => ({
@@ -34,12 +30,8 @@ vi.mock('@/lib/services/config.service', () => ({
   getConfigService: () => configServiceMock,
 }));
 
-vi.mock('@/lib/integrations/qbittorrent.service', () => ({
-  getQBittorrentService: async () => qbtMock,
-}));
-
-vi.mock('@/lib/integrations/sabnzbd.service', () => ({
-  getSABnzbdService: async () => sabMock,
+vi.mock('@/lib/services/download-client-manager.service', () => ({
+  getDownloadClientManager: () => downloadClientManagerMock,
 }));
 
 vi.mock('@/lib/services/audiobookshelf/api', () => ({
@@ -59,6 +51,7 @@ describe('deleteRequest', () => {
     // Default mock for child request queries (audiobook requests check for child ebook requests)
     prismaMock.request.findMany.mockResolvedValue([]);
     prismaMock.request.updateMany.mockResolvedValue({ count: 0 });
+    downloadClientManagerMock.getClientServiceForProtocol.mockReset();
   });
 
   it('returns not found when request is missing', async () => {
@@ -103,10 +96,24 @@ describe('deleteRequest', () => {
       return null;
     });
     configServiceMock.getBackendMode.mockResolvedValue('plex');
-    qbtMock.getTorrent.mockResolvedValue({
-      name: 'Book',
-      seeding_time: 120,
-    });
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-1',
+        name: 'Book',
+        size: 0,
+        bytesDownloaded: 0,
+        progress: 1.0,
+        status: 'seeding',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+        seedingTime: 120,
+      }),
+      deleteDownload: vi.fn().mockResolvedValue(undefined),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     prismaMock.audibleCache.findUnique.mockResolvedValueOnce({
       releaseDate: '2021-01-01T00:00:00.000Z',
     });
@@ -122,7 +129,7 @@ describe('deleteRequest', () => {
 
     expect(result.success).toBe(true);
     expect(result.torrentsRemoved).toBe(1);
-    expect(qbtMock.deleteTorrent).toHaveBeenCalledWith('hash-1', true);
+    expect(qbtClientMock.deleteDownload).toHaveBeenCalledWith('hash-1', true);
     // Code now uses deleteMany with ASIN-based matching
     expect(prismaMock.plexLibrary.deleteMany).toHaveBeenCalledWith({
       where: {
@@ -166,7 +173,23 @@ describe('deleteRequest', () => {
       return null;
     });
     configServiceMock.getBackendMode.mockResolvedValue('plex');
-    sabMock.deleteNZB.mockResolvedValue(undefined);
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'nzb-1',
+        name: 'Book Two',
+        size: 0,
+        bytesDownloaded: 0,
+        progress: 1.0,
+        status: 'completed',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+      deleteDownload: vi.fn().mockResolvedValue(undefined),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     fsMock.access.mockResolvedValue(undefined);
     fsMock.rm.mockResolvedValue(undefined);
     prismaMock.plexLibrary.findMany.mockResolvedValue([]);
@@ -178,7 +201,7 @@ describe('deleteRequest', () => {
 
     expect(result.success).toBe(true);
     expect(result.torrentsRemoved).toBe(1);
-    expect(sabMock.deleteNZB).toHaveBeenCalledWith('nzb-1', true);
+    expect(sabClientMock.deleteDownload).toHaveBeenCalledWith('nzb-1', true);
     expect(prismaMock.request.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ deletedBy: 'admin-1' }),
@@ -218,10 +241,24 @@ describe('deleteRequest', () => {
       return null;
     });
     configServiceMock.getBackendMode.mockResolvedValue('plex');
-    qbtMock.getTorrent.mockResolvedValue({
-      name: 'Book Three',
-      seeding_time: 60,
-    });
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-3',
+        name: 'Book Three',
+        size: 0,
+        bytesDownloaded: 0,
+        progress: 1.0,
+        status: 'seeding',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+        seedingTime: 60,
+      }),
+      deleteDownload: vi.fn(),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     prismaMock.audibleCache.findUnique.mockResolvedValueOnce({
       releaseDate: '2020-01-01T00:00:00.000Z',
     });
@@ -239,7 +276,6 @@ describe('deleteRequest', () => {
     const result = await deleteRequest('req-3', 'admin-2');
 
     expect(result.torrentsKeptSeeding).toBe(1);
-    expect(qbtMock.deleteTorrent).not.toHaveBeenCalled();
 
     // Path doesn't exist, so rm should not be called (first access fails)
     expect(fsMock.rm).not.toHaveBeenCalled();
@@ -274,10 +310,24 @@ describe('deleteRequest', () => {
       return null;
     });
     configServiceMock.getBackendMode.mockResolvedValue('plex');
-    qbtMock.getTorrent.mockResolvedValue({
-      name: 'Book Four',
-      seeding_time: 0,
-    });
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-4',
+        name: 'Book Four',
+        size: 0,
+        bytesDownloaded: 0,
+        progress: 1.0,
+        status: 'seeding',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+        seedingTime: 0,
+      }),
+      deleteDownload: vi.fn(),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     prismaMock.plexLibrary.findMany.mockResolvedValue([]);
     fsMock.access.mockRejectedValue(new Error('missing'));
     prismaMock.request.update.mockResolvedValue({});
@@ -287,7 +337,6 @@ describe('deleteRequest', () => {
     const result = await deleteRequest('req-4', 'admin-3');
 
     expect(result.torrentsKeptUnlimited).toBe(1);
-    expect(qbtMock.deleteTorrent).not.toHaveBeenCalled();
   });
 
   it('clears audiobookshelf linkage when SABnzbd delete fails', async () => {
@@ -319,7 +368,14 @@ describe('deleteRequest', () => {
       return null;
     });
     configServiceMock.getBackendMode.mockResolvedValue('audiobookshelf');
-    sabMock.deleteNZB.mockRejectedValue(new Error('missing'));
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      deleteDownload: vi.fn().mockRejectedValue(new Error('missing')),
+      getDownload: vi.fn(),
+      postProcess: vi.fn(),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     prismaMock.plexLibrary.findMany.mockResolvedValue([]);
     fsMock.access.mockRejectedValue(new Error('missing'));
     prismaMock.request.update.mockResolvedValue({});

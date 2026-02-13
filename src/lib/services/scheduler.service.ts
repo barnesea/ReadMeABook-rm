@@ -4,12 +4,13 @@
  */
 
 import { getJobQueueService, ScanPlexPayload } from './job-queue.service';
+import { getNotificationService } from './notification';
 import { prisma } from '../db';
 import { RMABLogger } from '../utils/logger';
 
 const logger = RMABLogger.create('Scheduler');
 
-export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds';
+export type ScheduledJobType = 'plex_library_scan' | 'plex_recently_added_check' | 'audible_refresh' | 'retry_missing_torrents' | 'retry_failed_imports' | 'cleanup_seeded_torrents' | 'monitor_rss_feeds' | 'sync_goodreads_shelves';
 
 export interface ScheduledJob {
   id: string;
@@ -49,10 +50,19 @@ export class SchedulerService {
   async start(): Promise<void> {
     logger.info('Initializing scheduler service...');
 
+    // Re-encrypt any notification backends with plaintext sensitive fields
+    try {
+      await getNotificationService().reEncryptUnprotectedBackends();
+    } catch (error) {
+      logger.error('Failed to re-encrypt notification backends (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     // Create default jobs if they don't exist
     await this.ensureDefaultJobs();
 
-    // Load and schedule all enabled jobs
+    // Load and schedule all enabled jobs (works with whatever jobs exist in DB)
     await this.scheduleAllJobs();
 
     // Check and trigger overdue jobs
@@ -62,7 +72,8 @@ export class SchedulerService {
   }
 
   /**
-   * Ensure default jobs exist in database
+   * Ensure default jobs exist in database.
+   * Each job is created independently so a single failure doesn't block the rest.
    */
   private async ensureDefaultJobs(): Promise<void> {
     const defaults = [
@@ -115,19 +126,44 @@ export class SchedulerService {
         enabled: true, // Enable by default
         payload: {},
       },
+      {
+        name: 'Sync Goodreads Shelves',
+        type: 'sync_goodreads_shelves' as ScheduledJobType,
+        schedule: '0 */6 * * *', // Every 6 hours
+        enabled: true, // Enable by default
+        payload: {},
+      },
     ];
 
-    for (const defaultJob of defaults) {
-      const existing = await prisma.scheduledJob.findFirst({
-        where: { type: defaultJob.type },
-      });
+    let created = 0;
+    let failed = 0;
 
-      if (!existing) {
-        await prisma.scheduledJob.create({
-          data: defaultJob,
+    for (const defaultJob of defaults) {
+      try {
+        const existing = await prisma.scheduledJob.findFirst({
+          where: { type: defaultJob.type },
         });
-        logger.info(`Created default job: ${defaultJob.name} (disabled by default)`);
+
+        if (!existing) {
+          await prisma.scheduledJob.create({
+            data: defaultJob,
+          });
+          created++;
+          logger.info(`Created default job: ${defaultJob.name} (enabled: ${defaultJob.enabled})`);
+        }
+      } catch (error) {
+        failed++;
+        logger.error(`Failed to create default job: ${defaultJob.name}`, {
+          type: defaultJob.type,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
+    }
+
+    if (failed > 0) {
+      logger.warn(`Default jobs: ${created} created, ${failed} failed — failed jobs will be retried on next restart`);
+    } else if (created > 0) {
+      logger.info(`Default jobs: ${created} created`);
     }
   }
 
@@ -313,6 +349,9 @@ export class SchedulerService {
         break;
       case 'monitor_rss_feeds':
         bullJobId = await this.triggerMonitorRssFeeds(job);
+        break;
+      case 'sync_goodreads_shelves':
+        bullJobId = await this.triggerSyncGoodreadsShelves(job);
         break;
       default:
         throw new Error(`Unknown job type: ${job.type}`);
@@ -577,6 +616,13 @@ export class SchedulerService {
    */
   private async triggerCleanupSeededTorrents(job: any): Promise<string> {
     return await this.jobQueue.addCleanupSeededTorrentsJob(job.id);
+  }
+
+  /**
+   * Trigger Goodreads shelves sync
+   */
+  private async triggerSyncGoodreadsShelves(job: any): Promise<string> {
+    return await this.jobQueue.addSyncGoodreadsShelvesJob(job.id);
   }
 }
 

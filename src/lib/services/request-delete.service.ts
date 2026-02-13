@@ -10,6 +10,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { RMABLogger } from '../utils/logger';
 import { buildAudiobookPath } from '../utils/file-organizer';
+import { CLIENT_PROTOCOL_MAP, DownloadClientType } from '../interfaces/download-client.interface';
 
 const logger = RMABLogger.create('RequestDelete');
 
@@ -119,76 +120,72 @@ export async function deleteRequest(
           );
         }
 
-        // Handle based on download client type (check which ID is present)
-        if (downloadHistory.torrentHash) {
-          // qBittorrent download
-          const { getQBittorrentService } = await import('../integrations/qbittorrent.service');
-          const qbt = await getQBittorrentService();
+        // Handle download cleanup via unified interface
+        const clientId = downloadHistory.downloadClientId || downloadHistory.torrentHash || downloadHistory.nzbId;
+        const clientType = downloadHistory.downloadClient || 'qbittorrent';
 
-          let torrent;
-          try {
-            torrent = await qbt.getTorrent(downloadHistory.torrentHash);
-          } catch (error) {
-            // Torrent not found in qBittorrent (already removed)
-            logger.info(`Torrent ${downloadHistory.torrentHash} not found in qBittorrent, skipping`);
-          }
+        if (clientId && clientType !== 'direct') {
+          const { getDownloadClientManager } = await import('./download-client-manager.service');
+          const manager = getDownloadClientManager(configService);
+          const protocol = CLIENT_PROTOCOL_MAP[clientType as DownloadClientType] || 'torrent';
+          const client = await manager.getClientServiceForProtocol(protocol as 'torrent' | 'usenet');
 
-          if (torrent) {
-            // Torrent exists in qBittorrent
-            const isUnlimitedSeeding = !seedingConfig || seedingConfig.seedingTimeMinutes === 0;
-            const isCompleted = downloadHistory.downloadStatus === 'completed';
+          if (client) {
+            // Get download info to check seeding status
+            let downloadInfo;
+            try {
+              downloadInfo = await client.getDownload(clientId);
+            } catch (error) {
+              logger.info(`Download ${clientId} not found in ${clientType}, skipping`);
+            }
 
-            if (isUnlimitedSeeding) {
-              // Unlimited seeding - keep in qBittorrent, stop monitoring
-              logger.info(
-                `Keeping torrent ${torrent.name} for unlimited seeding (indexer: ${downloadHistory.indexerName})`
-              );
-              torrentsKeptUnlimited++;
-            } else if (!isCompleted) {
-              // Download not completed - delete immediately
-              logger.info(
-                `Deleting incomplete download: ${torrent.name}`
-              );
-              await qbt.deleteTorrent(downloadHistory.torrentHash, true);
-              torrentsRemoved++;
-            } else {
-              // Check if seeding requirement is met
-              const seedingTimeSeconds = seedingConfig.seedingTimeMinutes * 60;
-              const actualSeedingTime = torrent.seeding_time || 0;
-              const hasMetRequirement = actualSeedingTime >= seedingTimeSeconds;
+            if (downloadInfo) {
+              const isUnlimitedSeeding = !seedingConfig || seedingConfig.seedingTimeMinutes === 0;
+              const isCompleted = downloadHistory.downloadStatus === 'completed';
 
-              if (hasMetRequirement) {
-                // Seeding requirement met - delete now
+              if (client.protocol === 'usenet') {
+                // Usenet - no seeding concept, delete immediately
+                try {
+                  await client.deleteDownload(clientId, true);
+                  logger.info(`Deleted download ${clientId} from ${client.clientType}`);
+                  torrentsRemoved++;
+                } catch (error) {
+                  logger.info(`Download ${clientId} not found in ${client.clientType}, skipping`);
+                }
+              } else if (isUnlimitedSeeding) {
+                // Unlimited seeding - keep in client, stop monitoring
                 logger.info(
-                  `Deleting torrent ${torrent.name} (seeding complete: ${Math.floor(
-                    actualSeedingTime / 60
-                  )}/${seedingConfig.seedingTimeMinutes} minutes)`
+                  `Keeping download ${downloadInfo.name} for unlimited seeding (indexer: ${downloadHistory.indexerName})`
                 );
-                await qbt.deleteTorrent(downloadHistory.torrentHash, true);
+                torrentsKeptUnlimited++;
+              } else if (!isCompleted) {
+                // Download not completed - delete immediately
+                logger.info(`Deleting incomplete download: ${downloadInfo.name}`);
+                await client.deleteDownload(clientId, true);
                 torrentsRemoved++;
               } else {
-                // Still needs seeding - keep for cleanup job
-                const remainingMinutes = Math.ceil((seedingTimeSeconds - actualSeedingTime) / 60);
-                logger.info(
-                  `Keeping torrent ${torrent.name} for ${remainingMinutes} more minutes of seeding`
-                );
-                torrentsKeptSeeding++;
+                // Check if seeding requirement is met
+                const seedingTimeSeconds = seedingConfig.seedingTimeMinutes * 60;
+                const actualSeedingTime = downloadInfo.seedingTime || 0;
+                const hasMetRequirement = actualSeedingTime >= seedingTimeSeconds;
+
+                if (hasMetRequirement) {
+                  logger.info(
+                    `Deleting download ${downloadInfo.name} (seeding complete: ${Math.floor(
+                      actualSeedingTime / 60
+                    )}/${seedingConfig.seedingTimeMinutes} minutes)`
+                  );
+                  await client.deleteDownload(clientId, true);
+                  torrentsRemoved++;
+                } else {
+                  const remainingMinutes = Math.ceil((seedingTimeSeconds - actualSeedingTime) / 60);
+                  logger.info(
+                    `Keeping download ${downloadInfo.name} for ${remainingMinutes} more minutes of seeding`
+                  );
+                  torrentsKeptSeeding++;
+                }
               }
             }
-          }
-        } else if (downloadHistory.nzbId) {
-          // SABnzbd download - no seeding concept for Usenet
-          try {
-            const { getSABnzbdService } = await import('../integrations/sabnzbd.service');
-            const sabnzbd = await getSABnzbdService();
-
-            // Try to delete the NZB from SABnzbd (might already be completed/removed)
-            await sabnzbd.deleteNZB(downloadHistory.nzbId, true);
-            logger.info(`Deleted NZB ${downloadHistory.nzbId} from SABnzbd`);
-            torrentsRemoved++;
-          } catch (error) {
-            // NZB not found or already removed
-            logger.info(`NZB ${downloadHistory.nzbId} not found in SABnzbd, skipping`);
           }
         }
       } catch (error) {
@@ -208,7 +205,11 @@ export async function deleteRequest(
       const { getConfigService } = await import('./config.service');
       const configService = getConfigService();
       const mediaDir = (await configService.get('media_dir')) || '/media/audiobooks';
-      const template = (await configService.get('audiobook_path_template')) || '{author}/{title} {asin}';
+      // Use ebook-specific template for ebook requests, with fallback to audiobook template
+      const audiobookTemplate = (await configService.get('audiobook_path_template')) || '{author}/{title} {asin}';
+      const template = isEbook
+        ? (await configService.get('ebook_path_template')) || audiobookTemplate
+        : audiobookTemplate;
 
       // Fetch year from audible cache if ASIN is available
       let year: number | undefined;

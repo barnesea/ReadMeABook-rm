@@ -21,6 +21,7 @@ const configMock = vi.hoisted(() => ({
 }));
 const downloadClientManagerMock = vi.hoisted(() => ({
   getClientForProtocol: vi.fn(),
+  getClientServiceForProtocol: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -50,20 +51,27 @@ vi.mock('@/lib/services/download-client-manager.service', () => ({
 describe('processMonitorDownload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    jobQueueMock.addNotificationJob.mockResolvedValue(undefined);
   });
 
   it('queues organize job when qBittorrent download completes', async () => {
-    qbtMock.getTorrent.mockResolvedValue({
-      content_path: '/remote/done/Book',
-      save_path: '/remote/done',
-      name: 'Book',
-    });
-    qbtMock.getDownloadProgress.mockReturnValue({
-      percent: 100,
-      state: 'completed',
-      speed: 0,
-      eta: 0,
-    });
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-1',
+        name: 'Book',
+        size: 0,
+        bytesDownloaded: 0,
+        progress: 1.0,
+        status: 'completed',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+        downloadPath: '/remote/done/Book',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-1',
       type: 'qbittorrent',
@@ -96,19 +104,34 @@ describe('processMonitorDownload', () => {
       'a1',
       expect.stringMatching(/downloads[\\/]+Book/)
     );
+    // Verify downloadPath is stored in download history on completion
+    expect(prismaMock.downloadHistory.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          downloadStatus: 'completed',
+          downloadPath: expect.stringMatching(/downloads[\\/]+Book/),
+        }),
+      })
+    );
   });
 
   it('re-schedules monitoring when download is still active', async () => {
-    qbtMock.getTorrent.mockResolvedValue({
-      save_path: '/downloads',
-      name: 'Book',
-    });
-    qbtMock.getDownloadProgress.mockReturnValue({
-      percent: 45,
-      state: 'downloading',
-      speed: 100,
-      eta: 60,
-    });
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-2',
+        name: 'Book',
+        size: 0,
+        bytesDownloaded: 0,
+        progress: 0.45,
+        status: 'downloading',
+        downloadSpeed: 100,
+        eta: 60,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.downloadHistory.update.mockResolvedValue({});
 
@@ -132,18 +155,29 @@ describe('processMonitorDownload', () => {
   });
 
   it('marks request failed when download fails', async () => {
-    qbtMock.getTorrent.mockResolvedValue({
-      save_path: '/downloads',
-      name: 'Book',
-    });
-    qbtMock.getDownloadProgress.mockReturnValue({
-      percent: 20,
-      state: 'failed',
-      speed: 0,
-      eta: 0,
-    });
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-3',
+        name: 'Book',
+        size: 0,
+        bytesDownloaded: 0,
+        progress: 0.20,
+        status: 'failed',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.downloadHistory.update.mockResolvedValue({});
+    prismaMock.request.findUnique.mockResolvedValue({
+      id: 'req-3',
+      audiobook: { title: 'Book', author: 'Author' },
+      user: { plexUsername: 'user' },
+    });
 
     const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
     const result = await processMonitorDownload({
@@ -163,15 +197,23 @@ describe('processMonitorDownload', () => {
   });
 
   it('handles SABnzbd completion and queues organize job', async () => {
-    sabMock.getNZB.mockResolvedValue({
-      nzbId: 'nzb-1',
-      size: 100,
-      progress: 1,
-      status: 'completed',
-      downloadSpeed: 0,
-      timeLeft: 0,
-      downloadPath: '/usenet/complete/Book',
-    });
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'nzb-1',
+        name: 'Book',
+        size: 100,
+        bytesDownloaded: 100,
+        progress: 1.0,
+        status: 'completed',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+        downloadPath: '/usenet/complete/Book',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-2',
       type: 'sabnzbd',
@@ -202,10 +244,76 @@ describe('processMonitorDownload', () => {
       'a4',
       '/usenet/complete/Book'
     );
+    // Verify downloadPath is stored in download history on completion
+    expect(prismaMock.downloadHistory.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          downloadStatus: 'completed',
+          downloadPath: '/usenet/complete/Book',
+        }),
+      })
+    );
+  });
+
+  it('handles NZBGet completion and queues organize job', async () => {
+    const nzbgetClientMock = {
+      clientType: 'nzbget',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue({
+        id: '42',
+        name: 'Book',
+        size: 200,
+        bytesDownloaded: 200,
+        progress: 1.0,
+        status: 'completed',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+        downloadPath: '/downloads/readmeabook/Book',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(nzbgetClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-nzbget',
+      type: 'nzbget',
+      name: 'NZBGet',
+      enabled: true,
+      remotePathMappingEnabled: false,
+    });
+    prismaMock.request.update.mockResolvedValue({});
+    prismaMock.downloadHistory.update.mockResolvedValue({});
+    prismaMock.request.findFirst.mockResolvedValue({
+      id: 'req-nzbget',
+      audiobook: { id: 'a-nzbget' },
+      deletedAt: null,
+    });
+
+    const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
+    const result = await processMonitorDownload({
+      requestId: 'req-nzbget',
+      downloadHistoryId: 'dh-nzbget',
+      downloadClientId: '42',
+      downloadClient: 'nzbget',
+      jobId: 'job-nzbget',
+    });
+
+    expect(result.completed).toBe(true);
+    // Verify it called getClientServiceForProtocol with 'usenet' (not 'torrent')
+    expect(downloadClientManagerMock.getClientServiceForProtocol).toHaveBeenCalledWith('usenet');
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-nzbget',
+      'a-nzbget',
+      '/downloads/readmeabook/Book'
+    );
   });
 
   it('does not mark request failed for transient NZB not found errors', async () => {
-    sabMock.getNZB.mockResolvedValue(null);
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue(null),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
 
     const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
     await expect(processMonitorDownload({
@@ -220,7 +328,13 @@ describe('processMonitorDownload', () => {
   });
 
   it('marks request failed when download client is unsupported', async () => {
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(null);
     prismaMock.request.update.mockResolvedValue({});
+    prismaMock.request.findUnique.mockResolvedValue({
+      id: 'req-6',
+      audiobook: { title: 'Book', author: 'Author' },
+      user: { plexUsername: 'user' },
+    });
 
     const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
     await expect(processMonitorDownload({
@@ -229,7 +343,7 @@ describe('processMonitorDownload', () => {
       downloadClientId: 'id-6',
       downloadClient: 'deluge',
       jobId: 'job-6',
-    })).rejects.toThrow(/not supported/i);
+    })).rejects.toThrow(/Unknown download client type: deluge/);
 
     expect(prismaMock.request.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -239,17 +353,37 @@ describe('processMonitorDownload', () => {
   });
 
   it('marks request failed when SABnzbd completion lacks a download path', async () => {
-    sabMock.getNZB.mockResolvedValue({
-      nzbId: 'nzb-2',
-      size: 100,
-      progress: 1,
-      status: 'completed',
-      downloadSpeed: 0,
-      timeLeft: 0,
-      downloadPath: undefined,
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'nzb-2',
+        name: 'Book',
+        size: 100,
+        bytesDownloaded: 100,
+        progress: 1.0,
+        status: 'completed',
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+        downloadPath: undefined,
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-2',
+      type: 'sabnzbd',
+      name: 'SABnzbd',
+      enabled: true,
+      remotePathMappingEnabled: false,
     });
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.downloadHistory.update.mockResolvedValue({});
+    prismaMock.request.findUnique.mockResolvedValue({
+      id: 'req-7',
+      audiobook: { title: 'Book', author: 'Author' },
+      user: { plexUsername: 'user' },
+    });
 
     const { processMonitorDownload } = await import('@/lib/processors/monitor-download.processor');
     await expect(processMonitorDownload({
@@ -268,14 +402,22 @@ describe('processMonitorDownload', () => {
   });
 
   it('converts SABnzbd progress from 0.0-1.0 to 0-100 percentage', async () => {
-    sabMock.getNZB.mockResolvedValue({
-      nzbId: 'nzb-3',
-      size: 1000000000, // 1GB
-      progress: 0.35, // 35% in decimal format (0.0-1.0)
-      status: 'downloading',
-      downloadSpeed: 5000000, // 5MB/s
-      timeLeft: 130,
-    });
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'nzb-3',
+        name: 'Book',
+        size: 1000000000,
+        bytesDownloaded: 350000000,
+        progress: 0.35,
+        status: 'downloading',
+        downloadSpeed: 5000000,
+        eta: 130,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.downloadHistory.update.mockResolvedValue({});
 

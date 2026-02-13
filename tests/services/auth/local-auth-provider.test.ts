@@ -191,6 +191,40 @@ describe('LocalAuthProvider', () => {
     expect(result.error).toContain('Password');
   });
 
+  it('allows short passwords when ALLOW_WEAK_PASSWORD is enabled', async () => {
+    process.env.ALLOW_WEAK_PASSWORD = 'true';
+    configMock.get.mockResolvedValueOnce('true'); // registration enabled
+    configMock.get.mockResolvedValueOnce('false'); // no admin approval
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    prismaMock.user.count.mockResolvedValue(0);
+    prismaMock.user.create.mockResolvedValue({
+      id: 'user-1',
+      plexId: 'local-user',
+      plexUsername: 'user',
+      role: 'admin',
+    });
+    bcryptHash.mockResolvedValue('hash');
+
+    const { LocalAuthProvider } = await import('@/lib/services/auth/LocalAuthProvider');
+    const provider = new LocalAuthProvider();
+    const result = await provider.register({ username: 'user', password: 'ab' });
+
+    expect(result.success).toBe(true);
+    delete process.env.ALLOW_WEAK_PASSWORD;
+  });
+
+  it('still rejects empty passwords when ALLOW_WEAK_PASSWORD is enabled', async () => {
+    process.env.ALLOW_WEAK_PASSWORD = 'true';
+
+    const { LocalAuthProvider } = await import('@/lib/services/auth/LocalAuthProvider');
+    const provider = new LocalAuthProvider();
+    const result = await provider.register({ username: 'user', password: '' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('required');
+    delete process.env.ALLOW_WEAK_PASSWORD;
+  });
+
   it('rejects registration when username is taken', async () => {
     configMock.get.mockResolvedValueOnce('true');
     prismaMock.user.findFirst.mockResolvedValue({ id: 'user-10' });

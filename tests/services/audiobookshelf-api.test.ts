@@ -275,9 +275,12 @@ describe('Audiobookshelf API client', () => {
     });
 
     await expect(deleteABSItem('item-1')).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledWith('http://abs/api/items/item-1', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('http://abs/api/items/item-1?hard=1', {
       method: 'DELETE',
-    }));
+      headers: {
+        'Authorization': 'Bearer token',
+      },
+    });
   });
 
   it('throws when delete fails', async () => {

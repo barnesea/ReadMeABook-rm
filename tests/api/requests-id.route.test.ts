@@ -13,6 +13,9 @@ const jobQueueMock = vi.hoisted(() => ({ addSearchJob: vi.fn(), addOrganizeJob: 
 const requireAuthMock = vi.hoisted(() => vi.fn());
 const qbtMock = vi.hoisted(() => ({ getTorrent: vi.fn() }));
 const sabnzbdMock = vi.hoisted(() => ({ getNZB: vi.fn() }));
+const downloadClientManagerMock = vi.hoisted(() => ({
+  getClientServiceForProtocol: vi.fn(),
+}));
 
 vi.mock('@/lib/db', () => ({
   prisma: prismaMock,
@@ -30,6 +33,14 @@ vi.mock('@/lib/integrations/sabnzbd.service', () => ({
   getSABnzbdService: async () => sabnzbdMock,
 }));
 
+vi.mock('@/lib/services/download-client-manager.service', () => ({
+  getDownloadClientManager: () => downloadClientManagerMock,
+}));
+
+vi.mock('@/lib/services/config.service', () => ({
+  getConfigService: () => ({}),
+}));
+
 vi.mock('@/lib/middleware/auth', () => ({
   requireAuth: requireAuthMock,
 }));
@@ -43,6 +54,7 @@ describe('Request by ID API routes', () => {
       json: vi.fn(),
     };
     requireAuthMock.mockImplementation((_req: any, handler: any) => handler(authRequest));
+    downloadClientManagerMock.getClientServiceForProtocol.mockReset();
   });
 
   it('returns 403 when user is not authorized to view the request', async () => {
@@ -200,9 +212,14 @@ describe('Request by ID API routes', () => {
         id: 'req-5',
         userId: 'user-1',
         audiobook: { id: 'ab-5' },
-        downloadHistory: [{ torrentHash: 'hash-1', selected: true }],
+        downloadHistory: [{ torrentHash: 'hash-1', selected: true, downloadClient: 'qbittorrent' }],
       });
-    qbtMock.getTorrent.mockResolvedValue({ save_path: '/downloads', name: 'Book' });
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue({
+      clientType: 'qbittorrent',
+      getDownload: vi.fn().mockResolvedValue({
+        downloadPath: '/downloads/Book',
+      }),
+    });
     prismaMock.request.update.mockResolvedValueOnce({
       id: 'req-5',
       status: 'processing',
@@ -230,9 +247,14 @@ describe('Request by ID API routes', () => {
         id: 'req-6',
         userId: 'user-1',
         audiobook: { id: 'ab-6' },
-        downloadHistory: [{ nzbId: 'nzb-1', selected: true }],
+        downloadHistory: [{ nzbId: 'nzb-1', selected: true, downloadClient: 'sabnzbd' }],
       });
-    sabnzbdMock.getNZB.mockResolvedValue({ downloadPath: '/usenet/book' });
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue({
+      clientType: 'sabnzbd',
+      getDownload: vi.fn().mockResolvedValue({
+        downloadPath: '/usenet/book',
+      }),
+    });
     prismaMock.request.update.mockResolvedValueOnce({
       id: 'req-6',
       status: 'processing',

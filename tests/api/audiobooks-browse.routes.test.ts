@@ -10,6 +10,7 @@ const prismaMock = createPrismaMock();
 const audibleServiceMock = vi.hoisted(() => ({
   search: vi.fn(),
   getAudiobookDetails: vi.fn(),
+  getBaseUrl: vi.fn().mockReturnValue('https://www.audible.com'),
 }));
 const enrichMock = vi.hoisted(() => vi.fn());
 const currentUserMock = vi.hoisted(() => vi.fn());

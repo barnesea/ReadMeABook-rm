@@ -87,7 +87,7 @@ export class ProwlarrService {
       headers: {
         'X-Api-Key': this.apiKey,
       },
-      timeout: 30000, // 30 seconds
+      timeout: 60000, // 60 seconds - some indexers (e.g. yggtorrent) enforce a 30s wait before download
       paramsSerializer: {
         serialize: (params) => {
           // Custom serializer to handle arrays correctly for Prowlarr API
@@ -121,11 +121,6 @@ export class ProwlarrService {
     filters?: SearchFilters
   ): Promise<TorrentResult[]> {
     try {
-      // Get configured download client type to determine if we should filter by category
-      const { getConfigService } = await import('../services/config.service');
-      const configService = getConfigService();
-      const clientType = (await configService.get('download_client_type')) || 'qbittorrent';
-
       // Determine which categories to search
       // Priority: filters.categories > filters.category > defaultCategory
       let categoriesToSearch: number[];
@@ -214,6 +209,55 @@ export class ProwlarrService {
   }
 
   /**
+   * Search with multiple query variations to increase coverage
+   * Fires 2 queries per call: "title author" and "title", then deduplicates by guid
+   */
+  async searchWithVariations(
+    title: string,
+    author: string,
+    filters?: SearchFilters
+  ): Promise<TorrentResult[]> {
+    const queries = [
+      `${title} ${author}`,
+      title,
+    ];
+
+    logger.info(`Searching with ${queries.length} query variations`, { queries });
+
+    const allResults: TorrentResult[] = [];
+
+    for (const query of queries) {
+      try {
+        const results = await this.search(query, filters);
+        logger.info(`Query "${query}" returned ${results.length} results`);
+        allResults.push(...results);
+      } catch (error) {
+        logger.error(`Query "${query}" failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Continue with other queries even if one fails
+      }
+    }
+
+    const deduplicated = this.deduplicateResults(allResults);
+    logger.info(`Multi-query search: ${allResults.length} total → ${deduplicated.length} after dedup (${allResults.length - deduplicated.length} duplicates removed)`);
+
+    return deduplicated;
+  }
+
+  /**
+   * Deduplicate results by guid, preserving order (first occurrence wins)
+   */
+  private deduplicateResults(results: TorrentResult[]): TorrentResult[] {
+    const seen = new Set<string>();
+    return results.filter(result => {
+      if (seen.has(result.guid)) {
+        return false;
+      }
+      seen.add(result.guid);
+      return true;
+    });
+  }
+
+  /**
    * Get list of configured indexers
    */
   async getIndexers(): Promise<Indexer[]> {
@@ -270,7 +314,7 @@ export class ProwlarrService {
           limit: 100,
           extended: 1,
         },
-        timeout: 30000,
+        timeout: 60000,
         responseType: 'text', // Get XML as text
       });
 
@@ -560,20 +604,22 @@ export class ProwlarrService {
    * Extract audiobook metadata from torrent title
    */
   private extractMetadata(title: string): {
-    format?: 'M4B' | 'M4A' | 'MP3';
+    format?: 'M4B' | 'M4A' | 'MP3' | 'FLAC';
     bitrate?: string;
     hasChapters?: boolean;
   } {
     const upperTitle = title.toUpperCase();
 
     // Detect format
-    let format: 'M4B' | 'M4A' | 'MP3' | undefined;
+    let format: 'M4B' | 'M4A' | 'MP3' | 'FLAC' | undefined;
     if (upperTitle.includes('M4B')) {
       format = 'M4B';
     } else if (upperTitle.includes('M4A')) {
       format = 'M4A';
     } else if (upperTitle.includes('MP3')) {
       format = 'MP3';
+    } else if (upperTitle.includes('FLAC')) {
+      format = 'FLAC';
     }
 
     // Detect bitrate (e.g., "64kbps", "128 KBPS")

@@ -5,13 +5,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlexService } from '@/lib/integrations/plex.service';
+import { requireSetupIncomplete } from '@/lib/middleware/auth';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Setup.TestPlex');
 
 export async function POST(request: NextRequest) {
+  return requireSetupIncomplete(request, async (req) => {
   try {
-    const { url, token } = await request.json();
+    const { url, token } = await req.json();
 
     if (!url || !token) {
       return NextResponse.json(
@@ -61,4 +63,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

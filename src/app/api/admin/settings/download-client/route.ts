@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { getConfigService } from '@/lib/services/config.service';
 import { getDownloadClientManager, invalidateDownloadClientManager, DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { SUPPORTED_CLIENT_TYPES, getClientDisplayName } from '@/lib/interfaces/download-client.interface';
 import { PathMapper } from '@/lib/utils/path-mapper';
 import { RMABLogger } from '@/lib/utils/logger';
 import { randomUUID } from 'crypto';
@@ -35,9 +36,9 @@ export async function PUT(request: NextRequest) {
         logger.warn('DEPRECATED: Using legacy single-client API. Please use /api/admin/settings/download-clients instead.');
 
         // Validate type
-        if (type !== 'qbittorrent' && type !== 'sabnzbd') {
+        if (!SUPPORTED_CLIENT_TYPES.includes(type)) {
           return NextResponse.json(
-            { error: 'Invalid client type. Must be qbittorrent or sabnzbd' },
+            { error: `Invalid client type. Must be one of: ${SUPPORTED_CLIENT_TYPES.join(', ')}` },
             { status: 400 }
           );
         }
@@ -97,7 +98,7 @@ export async function PUT(request: NextRequest) {
         const updatedClient: DownloadClientConfig = {
           id: existingIndex >= 0 ? existingClients[existingIndex].id : randomUUID(),
           type,
-          name: type === 'qbittorrent' ? 'qBittorrent' : 'SABnzbd',
+          name: getClientDisplayName(type),
           enabled: true,
           url,
           username: username || undefined,
@@ -137,6 +138,12 @@ export async function PUT(request: NextRequest) {
         } else if (type === 'sabnzbd') {
           const { invalidateSABnzbdService } = await import('@/lib/integrations/sabnzbd.service');
           invalidateSABnzbdService();
+        } else if (type === 'nzbget') {
+          const { invalidateNZBGetService } = await import('@/lib/integrations/nzbget.service');
+          invalidateNZBGetService();
+        } else if (type === 'transmission') {
+          const { invalidateTransmissionService } = await import('@/lib/integrations/transmission.service');
+          invalidateTransmissionService();
         }
 
         return NextResponse.json({

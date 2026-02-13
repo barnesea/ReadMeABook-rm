@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 
 interface AdminAccountStepProps {
@@ -25,6 +25,23 @@ export function AdminAccountStep({
 }: AdminAccountStepProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<{ username?: string; password?: string; confirm?: string }>({});
+  const [allowWeakPassword, setAllowWeakPassword] = useState(false);
+
+  // Fetch password policy
+  useEffect(() => {
+    const fetchPolicy = async () => {
+      try {
+        const response = await fetch('/api/auth/providers');
+        if (response.ok) {
+          const data = await response.json();
+          setAllowWeakPassword(data.allowWeakPassword === true);
+        }
+      } catch {
+        // Default to strict validation on error
+      }
+    };
+    fetchPolicy();
+  }, []);
 
   const validate = () => {
     const newErrors: { username?: string; password?: string; confirm?: string } = {};
@@ -35,7 +52,9 @@ export function AdminAccountStep({
     }
 
     // Validate password
-    if (!adminPassword || adminPassword.length < 8) {
+    if (!adminPassword) {
+      newErrors.password = 'Password is required';
+    } else if (!allowWeakPassword && adminPassword.length < 8) {
       newErrors.password = 'Password must be at least 8 characters';
     }
 
@@ -104,7 +123,7 @@ export function AdminAccountStep({
             <p className="mt-1 text-sm text-red-400">{errors.password}</p>
           )}
           <p className="mt-1 text-xs text-gray-500">
-            Choose a strong password (minimum 8 characters)
+            {allowWeakPassword ? 'Choose a password' : 'Choose a strong password (minimum 8 characters)'}
           </p>
         </div>
 

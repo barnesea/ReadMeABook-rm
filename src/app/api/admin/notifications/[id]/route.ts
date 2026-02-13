@@ -6,7 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
-import { getNotificationService, NotificationBackendType } from '@/lib/services/notification.service';
+import { getNotificationService } from '@/lib/services/notification';
+import { NOTIFICATION_EVENT_KEYS } from '@/lib/constants/notification-events';
 import { RMABLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 
@@ -15,7 +16,7 @@ const logger = RMABLogger.create('API.Admin.Notifications.Id');
 const UpdateBackendSchema = z.object({
   name: z.string().min(1).optional(),
   config: z.record(z.any()).optional(),
-  events: z.array(z.enum(['request_pending_approval', 'request_approved', 'request_available', 'request_error'])).min(1).optional(),
+  events: z.array(z.enum(NOTIFICATION_EVENT_KEYS)).min(1).optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -50,7 +51,7 @@ export async function GET(
           success: true,
           backend: {
             ...backend,
-            config: notificationService.maskConfig(backend.type as NotificationBackendType, backend.config),
+            config: notificationService.maskConfig(backend.type, backend.config),
           },
         });
       } catch (error) {
@@ -114,7 +115,7 @@ export async function PUT(
           });
 
           // Encrypt new/changed values
-          finalConfig = notificationService.encryptConfig(existing.type as NotificationBackendType, updatedConfig);
+          finalConfig = notificationService.encryptConfig(existing.type, updatedConfig);
         }
 
         // Update backend
@@ -139,7 +140,7 @@ export async function PUT(
           success: true,
           backend: {
             ...updated,
-            config: notificationService.maskConfig(updated.type as NotificationBackendType, updated.config),
+            config: notificationService.maskConfig(updated.type, updated.config),
           },
         });
       } catch (error) {

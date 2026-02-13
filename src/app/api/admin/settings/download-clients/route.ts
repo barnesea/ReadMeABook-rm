@@ -6,8 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { getConfigService } from '@/lib/services/config.service';
-import { getDownloadClientManager, invalidateDownloadClientManager } from '@/lib/services/download-client-manager.service';
-import { DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { getDownloadClientManager, invalidateDownloadClientManager, DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { SUPPORTED_CLIENT_TYPES, CLIENT_PROTOCOL_MAP, DownloadClientType, getClientDisplayName } from '@/lib/interfaces/download-client.interface';
 import { getEncryptionService } from '@/lib/services/encryption.service';
 import { RMABLogger } from '@/lib/utils/logger';
 import { randomUUID } from 'crypto';
@@ -62,12 +62,14 @@ export async function POST(request: NextRequest) {
           remotePath,
           localPath,
           category,
+          customPath,
+          postImportCategory,
         } = body;
 
         // Validate type
-        if (type !== 'qbittorrent' && type !== 'sabnzbd') {
+        if (!SUPPORTED_CLIENT_TYPES.includes(type)) {
           return NextResponse.json(
-            { error: 'Invalid client type. Must be qbittorrent or sabnzbd' },
+            { error: `Invalid client type. Must be one of: ${SUPPORTED_CLIENT_TYPES.join(', ')}` },
             { status: 400 }
           );
         }
@@ -99,21 +101,30 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Check for duplicate type (only one client per type for now)
+        // Check for duplicate protocol (only one client per protocol)
         const config = await getConfigService();
         const manager = getDownloadClientManager(config);
         const existingClients = await manager.getAllClients();
 
-        const duplicateType = existingClients.find(c => c.type === type && c.enabled);
-        if (duplicateType) {
+        const protocol = CLIENT_PROTOCOL_MAP[type as DownloadClientType];
+        const duplicateProtocol = existingClients.find(c => CLIENT_PROTOCOL_MAP[c.type] === protocol);
+        if (duplicateProtocol) {
           return NextResponse.json(
-            { error: `A ${type} client is already configured. Please disable or remove it first.` },
+            { error: `A ${protocol} client (${getClientDisplayName(duplicateProtocol.type)}) is already configured. Remove it first to add a different ${protocol} client.` },
             { status: 400 }
           );
         }
 
         // Create new client config for testing (with plaintext password)
         // qBittorrent credentials are optional (supports IP whitelist auth)
+        // Validate customPath: reject paths containing ".."
+        if (customPath && customPath.includes('..')) {
+          return NextResponse.json(
+            { error: 'Custom path cannot contain ".."' },
+            { status: 400 }
+          );
+        }
+
         const newClient: DownloadClientConfig = {
           id: randomUUID(),
           type,
@@ -127,6 +138,8 @@ export async function POST(request: NextRequest) {
           remotePath: remotePath || undefined,
           localPath: localPath || undefined,
           category: category || 'readmeabook',
+          customPath: customPath || undefined,
+          postImportCategory: postImportCategory || undefined,
         };
 
         // Test connection before saving

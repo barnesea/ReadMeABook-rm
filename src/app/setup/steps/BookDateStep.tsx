@@ -12,6 +12,7 @@ interface BookDateStepProps {
   bookdateApiKey: string;
   bookdateModel: string;
   bookdateConfigured: boolean;
+  bookdateModels: ModelOption[];
   onUpdate: (field: string, value: any) => void;
   onNext: () => void;
   onSkip: () => void;
@@ -28,6 +29,7 @@ export function BookDateStep({
   bookdateApiKey,
   bookdateModel,
   bookdateConfigured,
+  bookdateModels,
   onUpdate,
   onNext,
   onSkip,
@@ -35,7 +37,7 @@ export function BookDateStep({
 }: BookDateStepProps) {
   const [testing, setTesting] = useState(false);
   const [tested, setTested] = useState(bookdateConfigured);
-  const [models, setModels] = useState<ModelOption[]>([]);
+  const [models, setModels] = useState<ModelOption[]>(bookdateModels);
   const [error, setError] = useState<string | null>(null);
 
   const handleTestConnection = async () => {
@@ -65,19 +67,22 @@ export function BookDateStep({
         throw new Error(data.error || 'Connection test failed');
       }
 
-      setModels(data.models || []);
+      const fetchedModels = data.models || [];
+      setModels(fetchedModels);
       setTested(true);
       onUpdate('bookdateConfigured', true);
+      onUpdate('bookdateModels', fetchedModels);
 
       // Auto-select first model if none selected
-      if (!bookdateModel && data.models?.length > 0) {
-        onUpdate('bookdateModel', data.models[0].id);
+      if (!bookdateModel && fetchedModels.length > 0) {
+        onUpdate('bookdateModel', fetchedModels[0].id);
       }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection test failed');
       setTested(false);
       onUpdate('bookdateConfigured', false);
+      onUpdate('bookdateModels', []);
     } finally {
       setTesting(false);
     }
@@ -123,6 +128,7 @@ export function BookDateStep({
             setTested(false);
             setModels([]);
             onUpdate('bookdateConfigured', false);
+            onUpdate('bookdateModels', []);
           }}
           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
         >
@@ -144,6 +150,7 @@ export function BookDateStep({
             setTested(false);
             setModels([]);
             onUpdate('bookdateConfigured', false);
+            onUpdate('bookdateModels', []);
           }}
           placeholder={bookdateProvider === 'openai' ? 'sk-...' : 'sk-ant-...'}
           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"

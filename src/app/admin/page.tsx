@@ -12,6 +12,7 @@ import { MetricCard } from './components/MetricCard';
 import { ActiveDownloadsTable } from './components/ActiveDownloadsTable';
 import { RecentRequestsTable } from './components/RecentRequestsTable';
 import { ToastProvider, useToast } from '@/components/ui/Toast';
+import { ReportedIssuesSection } from './components/ReportedIssuesSection';
 import { formatDistanceToNow } from 'date-fns';
 import { useState } from 'react';
 
@@ -328,6 +329,14 @@ function AdminDashboardContent() {
     }
   );
 
+  const { data: reportedIssuesData } = useSWR(
+    '/api/admin/reported-issues',
+    authenticatedFetcher,
+    {
+      refreshInterval: 10000,
+    }
+  );
+
   const { data: settingsData } = useSWR(
     '/api/admin/settings',
     authenticatedFetcher,
@@ -576,6 +585,11 @@ function AdminDashboardContent() {
             {/* Requests Awaiting Approval */}
             {pendingApprovalData?.requests && pendingApprovalData.requests.length > 0 && (
               <PendingApprovalSection requests={pendingApprovalData.requests} />
+            )}
+
+            {/* Reported Issues */}
+            {reportedIssuesData?.issues && reportedIssuesData.issues.length > 0 && (
+              <ReportedIssuesSection issues={reportedIssuesData.issues} />
             )}
 
             {/* Active Downloads */}

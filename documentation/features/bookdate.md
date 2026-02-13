@@ -6,7 +6,7 @@
 Personalized audiobook discovery using OpenAI/Claude APIs. Admin configures AI provider globally. Users swipe through recommendations based on their individual Plex library + swipe history. Right swipe creates request, left rejects, up dismisses.
 
 ## Key Details
-- **AI Providers:** OpenAI (GPT-4o+), Claude (Sonnet 4.5, Opus 4, Haiku)
+- **AI Providers:** OpenAI (GPT-4+), Claude (dynamically fetched from Anthropic Models API)
 - **Configuration:** Global admin-managed (provider, model, API key), per-user preferences (library scope, custom prompt)
 - **Personalization:** Each user receives recommendations based on their own library, ratings, swipe history, and custom preferences
 - **Library Scopes (per-user):**

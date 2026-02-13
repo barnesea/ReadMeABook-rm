@@ -51,7 +51,7 @@ describe('IndexerConfigModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('validates that at least one category is selected', () => {
+  it('shows warning when all audiobook categories are deselected but still allows save', () => {
     const onSave = vi.fn();
 
     render(
@@ -72,11 +72,18 @@ describe('IndexerConfigModal', () => {
     }
 
     fireEvent.click(within(audiobookRow).getByRole('switch'));
+
+    // Warning should be shown instead of blocking save
+    expect(screen.getByText(/will not be searched for audiobooks/i)).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Add Indexer' }));
 
-    // Component now shows specific error for audiobook categories
-    expect(screen.getByText('At least one audiobook category must be selected')).toBeInTheDocument();
-    expect(onSave).not.toHaveBeenCalled();
+    // Save should still be called with empty audiobook categories
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audiobookCategories: [],
+      })
+    );
   });
 
   it('forces RSS to false when the indexer does not support RSS', () => {

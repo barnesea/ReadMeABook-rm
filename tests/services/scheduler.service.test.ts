@@ -18,11 +18,16 @@ const jobQueueMock = vi.hoisted(() => ({
   addRetryFailedImportsJob: vi.fn(),
   addCleanupSeededTorrentsJob: vi.fn(),
   addMonitorRssFeedsJob: vi.fn(),
+  addSyncGoodreadsShelvesJob: vi.fn(),
 }));
 
 const configServiceMock = vi.hoisted(() => ({
   getBackendMode: vi.fn(),
   getMany: vi.fn(),
+}));
+
+const notificationServiceMock = vi.hoisted(() => ({
+  reEncryptUnprotectedBackends: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock('@/lib/services/job-queue.service', () => ({
@@ -31,6 +36,10 @@ vi.mock('@/lib/services/job-queue.service', () => ({
 
 vi.mock('@/lib/services/config.service', () => ({
   getConfigService: () => configServiceMock,
+}));
+
+vi.mock('@/lib/services/notification', () => ({
+  getNotificationService: () => notificationServiceMock,
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -69,7 +78,7 @@ describe('SchedulerService', () => {
     const service = new SchedulerService();
     await service.start();
 
-    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(7);
+    expect(prismaMock.scheduledJob.create).toHaveBeenCalledTimes(8);
     expect(jobQueueMock.addRepeatableJob).toHaveBeenCalledWith(
       'audible_refresh',
       { scheduledJobId: 'job-1' },
@@ -280,6 +289,7 @@ describe('SchedulerService', () => {
     ['retry_failed_imports', 'addRetryFailedImportsJob'],
     ['cleanup_seeded_torrents', 'addCleanupSeededTorrentsJob'],
     ['monitor_rss_feeds', 'addMonitorRssFeedsJob'],
+    ['sync_goodreads_shelves', 'addSyncGoodreadsShelvesJob'],
   ])('triggers %s jobs with job queue', async (type, queueMethod) => {
     prismaMock.scheduledJob.findUnique.mockResolvedValue({
       id: 'job-type',

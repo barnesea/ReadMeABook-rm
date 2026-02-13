@@ -304,6 +304,7 @@ export function AudiobookCard({
         requestStatus={audiobook.requestStatus}
         isAvailable={audiobook.isAvailable}
         requestedByUsername={audiobook.requestedByUsername}
+        hasReportedIssue={audiobook.hasReportedIssue}
       />
 
       {/* Narrator Selection Modal */}

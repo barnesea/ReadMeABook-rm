@@ -10,12 +10,14 @@ import { Header } from '@/components/layout/Header';
 import { RequestCard } from '@/components/requests/RequestCard';
 import { useRequests } from '@/lib/hooks/useRequests';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePreferences } from '@/contexts/PreferencesContext';
 import { cn } from '@/lib/utils/cn';
 
 type FilterStatus = 'all' | 'active' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 
 export default function RequestsPage() {
   const { user } = useAuth();
+  const { squareCovers } = usePreferences();
   const [filter, setFilter] = useState<FilterStatus>('all');
 
   // Always fetch only the current user's requests (even for admins)
@@ -133,7 +135,10 @@ export default function RequestsPage() {
                 className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 animate-pulse"
               >
                 <div className="flex gap-4">
-                  <div className="w-24 h-36 bg-gray-300 dark:bg-gray-700 rounded"></div>
+                  <div className={cn(
+                    'w-24 bg-gray-300 dark:bg-gray-700 rounded',
+                    squareCovers ? 'aspect-square' : 'aspect-[2/3]'
+                  )}></div>
                   <div className="flex-1 space-y-3">
                     <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-3/4"></div>
                     <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-1/2"></div>

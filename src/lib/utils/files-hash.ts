@@ -8,11 +8,7 @@
 
 import crypto from 'crypto';
 import path from 'path';
-
-/**
- * Supported audio file extensions for hash generation
- */
-const AUDIO_EXTENSIONS = ['.m4b', '.m4a', '.mp3', '.mp4', '.aa', '.aax'];
+import { AUDIO_EXTENSIONS } from '../constants/audio-formats';
 
 /**
  * Generates a SHA256 hash of audio filenames for library matching.
@@ -51,7 +47,7 @@ export function generateFilesHash(filePaths: string[]): string {
     })
     .filter((basename) => {
       const ext = path.extname(basename).toLowerCase();
-      return AUDIO_EXTENSIONS.includes(ext);
+      return (AUDIO_EXTENSIONS as readonly string[]).includes(ext);
     })
     .map((basename) => basename.toLowerCase()) // Normalize case
     .sort(); // Sort alphabetically for deterministic hash

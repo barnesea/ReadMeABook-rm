@@ -1,5 +1,8 @@
 #!/bin/bash
 # Redis startup wrapper for unified container
+# Checks USE_EXTERNAL_REDIS flag (set by entrypoint) to decide whether
+# to start the local instance or sleep to keep supervisord happy.
+#
 # Uses gosu to ensure correct PUID:PGID for file operations
 #
 # Supports:
@@ -15,11 +18,17 @@ if [ -f /etc/environment ]; then
     set +a
 fi
 
+if [ "$USE_EXTERNAL_REDIS" = "true" ]; then
+    echo "[Redis] External Redis configured - skipping local instance"
+    exec sleep infinity
+fi
+
+echo "[Redis] Starting local Redis server..."
+
 # Get PUID/PGID (default to redis user's current IDs if not set)
 PUID=${PUID:-$(id -u redis)}
 PGID=${PGID:-$(id -g redis)}
 
-echo "[Redis] Starting Redis server..."
 echo "[Redis] Process will run as UID:GID = $PUID:$PGID"
 
 # =============================================================================

@@ -11,7 +11,10 @@ import { StatusBadge } from './StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { useCancelRequest, useManualSearch } from '@/lib/hooks/useRequests';
 import { cn } from '@/lib/utils/cn';
+import { usePreferences } from '@/contexts/PreferencesContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { InteractiveTorrentSearchModal } from './InteractiveTorrentSearchModal';
+import { AudiobookDetailsModal } from '@/components/audiobooks/AudiobookDetailsModal';
 
 interface RequestCardProps {
   request: {
@@ -25,6 +28,7 @@ interface RequestCardProps {
     completedAt?: string;
     audiobook: {
       id: string;
+      audibleAsin?: string;
       title: string;
       author: string;
       coverArtUrl?: string;
@@ -36,8 +40,11 @@ interface RequestCardProps {
 export function RequestCard({ request, showActions = true }: RequestCardProps) {
   const { cancelRequest, isLoading } = useCancelRequest();
   const { triggerManualSearch, isLoading: isManualSearching } = useManualSearch();
+  const { squareCovers } = usePreferences();
+  const { user } = useAuth();
   const [showError, setShowError] = React.useState(false);
   const [showInteractiveSearch, setShowInteractiveSearch] = React.useState(false);
+  const [showDetailsModal, setShowDetailsModal] = React.useState(false);
 
   const requestType = request.type || 'audiobook';
   const isEbook = requestType === 'ebook';
@@ -46,7 +53,9 @@ export function RequestCard({ request, showActions = true }: RequestCardProps) {
   const isActive = ['searching', 'downloading', 'processing'].includes(request.status);
   const isFailed = request.status === 'failed';
   // Ebook requests don't support interactive search (Anna's Archive only)
-  const canSearch = !isEbook && ['pending', 'failed', 'awaiting_search'].includes(request.status);
+  // Interactive search also requires the interactiveSearch permission
+  const hasInteractiveSearchAccess = user?.role === 'admin' || user?.permissions?.interactiveSearch !== false;
+  const canSearch = hasInteractiveSearchAccess && !isEbook && ['pending', 'failed', 'awaiting_search'].includes(request.status);
 
   const handleCancel = async () => {
     if (window.confirm('Are you sure you want to cancel this request?')) {
@@ -94,7 +103,19 @@ export function RequestCard({ request, showActions = true }: RequestCardProps) {
       <div className="flex gap-3 sm:gap-4 p-3 sm:p-4">
         {/* Cover Art */}
         <div className="flex-shrink-0">
-          <div className="relative w-16 h-24 sm:w-24 sm:h-36 rounded overflow-hidden bg-gray-200 dark:bg-gray-700">
+          <div
+            className={cn(
+              'relative rounded overflow-hidden bg-gray-200 dark:bg-gray-700',
+              squareCovers
+                ? 'w-16 sm:w-24 aspect-square'
+                : 'w-16 sm:w-24 aspect-[2/3]',
+              request.audiobook.audibleAsin && 'cursor-pointer hover:opacity-90 transition-opacity'
+            )}
+            onClick={() => request.audiobook.audibleAsin && setShowDetailsModal(true)}
+            role={request.audiobook.audibleAsin ? 'button' : undefined}
+            tabIndex={request.audiobook.audibleAsin ? 0 : undefined}
+            onKeyDown={(e) => e.key === 'Enter' && request.audiobook.audibleAsin && setShowDetailsModal(true)}
+          >
             {request.audiobook.coverArtUrl ? (
               <Image
                 src={request.audiobook.coverArtUrl}
@@ -277,6 +298,18 @@ export function RequestCard({ request, showActions = true }: RequestCardProps) {
           author: request.audiobook.author,
         }}
       />
+
+      {/* Audiobook Details Modal */}
+      {request.audiobook.audibleAsin && (
+        <AudiobookDetailsModal
+          asin={request.audiobook.audibleAsin}
+          isOpen={showDetailsModal}
+          onClose={() => setShowDetailsModal(false)}
+          requestStatus={request.status}
+          isAvailable={['available', 'downloaded'].includes(request.status)}
+          hideRequestActions
+        />
+      )}
     </div>
   );
 }

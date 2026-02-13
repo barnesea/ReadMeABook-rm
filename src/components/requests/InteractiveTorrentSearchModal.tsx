@@ -22,6 +22,7 @@ import {
   useInteractiveSearchEbookByAsin,
   useSelectEbookByAsin,
 } from '@/lib/hooks/useRequests';
+import { useReplaceWithTorrent } from '@/lib/hooks/useReportedIssues';
 import { Audiobook } from '@/lib/hooks/useAudiobooks';
 
 interface InteractiveTorrentSearchModalProps {
@@ -36,6 +37,7 @@ interface InteractiveTorrentSearchModalProps {
   fullAudiobook?: Audiobook; // Optional - only provided when called from details modal
   onSuccess?: () => void;
   searchMode?: 'audiobook' | 'ebook'; // Search mode - defaults to audiobook
+  replaceIssueId?: string; // Optional - when set, confirm handler calls replace endpoint instead
 }
 
 // Format relative time from publish date
@@ -87,10 +89,14 @@ export function InteractiveTorrentSearchModal({
   fullAudiobook,
   onSuccess,
   searchMode = 'audiobook',
+  replaceIssueId,
 }: InteractiveTorrentSearchModalProps) {
   // Hooks for existing audiobook request flow
   const { searchTorrents: searchByRequestId, isLoading: isSearchingByRequest, error: searchByRequestError } = useInteractiveSearch();
   const { selectTorrent, isLoading: isSelectingTorrent, error: selectTorrentError } = useSelectTorrent();
+
+  // Hook for reported issue replacement flow
+  const { replaceWithTorrent, isLoading: isReplacing, error: replaceError } = useReplaceWithTorrent();
 
   // Hooks for new audiobook flow
   const { searchTorrents: searchByAudiobook, isLoading: isSearchingByAudiobook, error: searchByAudiobookError } = useSearchTorrents();
@@ -124,14 +130,18 @@ export function InteractiveTorrentSearchModal({
   const isSearching = isEbookMode
     ? (useAsinMode ? isSearchingEbooksByAsin : isSearchingEbooks)
     : (hasRequestId ? isSearchingByRequest : isSearchingByAudiobook);
-  const isDownloading = isEbookMode
-    ? (useAsinMode ? isSelectingEbookByAsin : isSelectingEbook)
-    : (hasRequestId ? isSelectingTorrent : isRequestingWithTorrent);
-  const error = isEbookMode
-    ? (useAsinMode ? (searchEbooksByAsinError || selectEbookByAsinError) : (searchEbooksError || selectEbookError))
-    : (hasRequestId
-        ? (searchByRequestError || selectTorrentError)
-        : (searchByAudiobookError || requestWithTorrentError));
+  const isDownloading = replaceIssueId
+    ? isReplacing
+    : isEbookMode
+      ? (useAsinMode ? isSelectingEbookByAsin : isSelectingEbook)
+      : (hasRequestId ? isSelectingTorrent : isRequestingWithTorrent);
+  const error = replaceIssueId
+    ? (replaceError || (hasRequestId ? searchByRequestError : searchByAudiobookError))
+    : isEbookMode
+      ? (useAsinMode ? (searchEbooksByAsinError || selectEbookByAsinError) : (searchEbooksError || selectEbookError))
+      : (hasRequestId
+          ? (searchByRequestError || selectTorrentError)
+          : (searchByAudiobookError || requestWithTorrentError));
 
   // Mount tracking for portal
   useEffect(() => { setMounted(true); }, []);
@@ -188,7 +198,7 @@ export function InteractiveTorrentSearchModal({
         const customTitle = searchTitle !== audiobook.title ? searchTitle : undefined;
         data = await searchByRequestId(requestId, customTitle);
       } else {
-        const audiobookAsin = fullAudiobook?.asin;
+        const audiobookAsin = fullAudiobook?.asin || asin;
         data = await searchByAudiobook(searchTitle, audiobook.author, audiobookAsin);
       }
       setResults(data || []);
@@ -208,7 +218,10 @@ export function InteractiveTorrentSearchModal({
   const handleConfirmDownload = async () => {
     if (!confirmTorrent) return;
     try {
-      if (isEbookMode) {
+      if (replaceIssueId) {
+        // Reported issue replacement flow
+        await replaceWithTorrent(replaceIssueId, confirmTorrent);
+      } else if (isEbookMode) {
         if (useAsinMode && asin) {
           await selectEbookByAsin(asin, confirmTorrent);
         } else if (requestId) {

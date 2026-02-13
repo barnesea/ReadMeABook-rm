@@ -15,7 +15,7 @@ Request → search_indexers → rank_results → download_torrent
 
 1. **search_indexers** - Search Prowlarr for torrents
 2. **rank_results** - Apply ranking algorithm, select best
-3. **download_torrent** - Add to qBittorrent
+3. **download_torrent** - Add to download client (qBittorrent/Transmission/SABnzbd)
 4. **monitor_download** - Poll progress (10s intervals)
 5. **process_audiobook** - Organize files to media directory
 6. **update_plex** - Trigger scan, fuzzy match
@@ -23,7 +23,7 @@ Request → search_indexers → rank_results → download_torrent
 ## Integration Points
 
 **Indexers:** Prowlarr (primary), Jackett (fallback)
-**Download Clients:** qBittorrent (primary), Transmission (fallback)
+**Download Clients:** qBittorrent or Transmission (torrent), SABnzbd (usenet) — [details](./download-clients.md)
 **Media Server:** Plex (scan + match)
 
 ## Job Queue (Bull)
@@ -43,7 +43,9 @@ Request → search_indexers → rank_results → download_torrent
 ## Related Docs
 
 - [Prowlarr](./prowlarr.md)
+- [Download Clients](./download-clients.md) - Multi-client management, protocol routing
 - [qBittorrent](./qbittorrent.md)
+- [SABnzbd](./sabnzbd.md)
 - [Ranking Algorithm](./ranking-algorithm.md)
 - [File Organization](./file-organization.md)
 - [Plex Integration](../integrations/plex.md)

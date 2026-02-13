@@ -13,7 +13,7 @@ import { DownloadClientStep } from '@/app/setup/steps/DownloadClientStep';
 
 interface DownloadClient {
   id: string;
-  type: 'qbittorrent' | 'sabnzbd';
+  type: 'qbittorrent' | 'sabnzbd' | 'transmission';
   name: string;
   enabled: boolean;
   url: string;
@@ -469,34 +469,39 @@ describe('DownloadClientStep', () => {
   });
 
   describe('Client Type Restrictions', () => {
-    it('shows "Already configured" when qBittorrent is already added', () => {
+    it('shows "Protocol already configured" when a torrent client is already added', () => {
       const mockClient = createMockClient({ type: 'qbittorrent' });
 
       render(<DownloadClientHarness onNext={vi.fn()} onBack={vi.fn()} initialClients={[mockClient]} />);
 
-      // "Already configured" text should appear for qBittorrent
-      expect(screen.getByText('Already configured')).toBeInTheDocument();
+      // "Protocol already configured" text should appear for torrent clients
+      const configuredMessages = screen.getAllByText('Protocol already configured');
+      expect(configuredMessages.length).toBeGreaterThanOrEqual(1);
 
-      // Add qBittorrent button should not exist
+      // Add qBittorrent and Add Transmission buttons should not exist (torrent protocol taken)
       expect(screen.queryByRole('button', { name: /Add qBittorrent/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Add Transmission/i })).not.toBeInTheDocument();
 
-      // SABnzbd should still have Add button
+      // SABnzbd should still have Add button (different protocol)
       expect(screen.getByRole('button', { name: /Add SABnzbd/i })).toBeInTheDocument();
     });
 
-    it('shows "Already configured" when SABnzbd is already added', () => {
+    it('shows "Protocol already configured" when SABnzbd is already added', () => {
       const mockClient = createMockClient({ type: 'sabnzbd', name: 'My SABnzbd' });
 
       render(<DownloadClientHarness onNext={vi.fn()} onBack={vi.fn()} initialClients={[mockClient]} />);
 
-      // "Already configured" text should appear for SABnzbd
-      expect(screen.getByText('Already configured')).toBeInTheDocument();
+      // "Protocol already configured" text should appear for both usenet client cards (SABnzbd + NZBGet)
+      const configuredMessages = screen.getAllByText('Protocol already configured');
+      expect(configuredMessages.length).toBe(2);
 
-      // Add SABnzbd button should not exist
+      // Add SABnzbd and NZBGet buttons should not exist (usenet protocol taken)
       expect(screen.queryByRole('button', { name: /Add SABnzbd/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Add NZBGet/i })).not.toBeInTheDocument();
 
-      // qBittorrent should still have Add button
+      // Torrent clients should still have Add buttons
       expect(screen.getByRole('button', { name: /Add qBittorrent/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add Transmission/i })).toBeInTheDocument();
     });
   });
 
@@ -635,9 +640,9 @@ describe('DownloadClientStep', () => {
         expect(editButtons).toHaveLength(2);
       });
 
-      // Both "Already configured" messages should appear
-      const alreadyConfiguredMessages = screen.getAllByText('Already configured');
-      expect(alreadyConfiguredMessages).toHaveLength(2);
+      // Both "Protocol already configured" messages should appear (torrent + usenet)
+      const alreadyConfiguredMessages = screen.getAllByText('Protocol already configured');
+      expect(alreadyConfiguredMessages.length).toBeGreaterThanOrEqual(2);
     });
   });
 

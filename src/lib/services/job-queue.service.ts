@@ -7,7 +7,9 @@ import Queue, { Job as BullJob, JobOptions } from 'bull';
 import Redis from 'ioredis';
 import { prisma } from '../db';
 import { TorrentResult } from '../utils/ranking-algorithm';
+import { DownloadClientType } from '../interfaces/download-client.interface';
 import { RMABLogger } from '../utils/logger';
+import type { NotificationEvent } from '@/lib/constants/notification-events';
 
 const logger = RMABLogger.create('JobQueue');
 
@@ -24,6 +26,7 @@ export type JobType =
   | 'retry_failed_imports'
   | 'cleanup_seeded_torrents'
   | 'monitor_rss_feeds'
+  | 'sync_goodreads_shelves'
   | 'send_notification'
   // Ebook-specific job types
   | 'search_ebook'
@@ -60,7 +63,7 @@ export interface MonitorDownloadPayload extends JobPayload {
   requestId: string;
   downloadHistoryId: string;
   downloadClientId: string;
-  downloadClient: 'qbittorrent' | 'sabnzbd';
+  downloadClient: DownloadClientType;
 }
 
 export interface OrganizeFilesPayload extends JobPayload {
@@ -98,6 +101,12 @@ export interface RetryFailedImportsPayload extends JobPayload {
 
 export interface CleanupSeededTorrentsPayload extends JobPayload {
   scheduledJobId?: string;
+}
+
+export interface SyncGoodreadsShelvesPayload extends JobPayload {
+  scheduledJobId?: string;
+  shelfId?: string;
+  maxLookupsPerShelf?: number;
 }
 
 // Ebook-specific payload interfaces
@@ -141,12 +150,14 @@ export interface MonitorDirectDownloadPayload extends JobPayload {
 }
 
 export interface SendNotificationPayload extends JobPayload {
-  event: 'request_pending_approval' | 'request_approved' | 'request_available' | 'request_error';
-  requestId: string;
+  event: NotificationEvent;
+  requestId?: string;
+  issueId?: string;
   title: string;
   author: string;
   userName: string;
   message?: string;
+  requestType?: string; // 'audiobook' | 'ebook' — drives type-specific notification titles
   timestamp: Date;
 }
 
@@ -339,6 +350,12 @@ export class JobQueueService {
       const { processCleanupSeededTorrents } = await import('../processors/cleanup-seeded-torrents.processor');
       const payloadWithJobId = await this.ensureJobRecord(job, 'cleanup_seeded_torrents');
       return await processCleanupSeededTorrents(payloadWithJobId);
+    });
+
+    this.queue.process('sync_goodreads_shelves', 1, async (job: BullJob<SyncGoodreadsShelvesPayload>) => {
+      const { processSyncGoodreadsShelves } = await import('../processors/sync-goodreads-shelves.processor');
+      const payloadWithJobId = await this.ensureJobRecord(job, 'sync_goodreads_shelves');
+      return await processSyncGoodreadsShelves(payloadWithJobId);
     });
 
     // Send notification processor
@@ -547,7 +564,7 @@ export class JobQueueService {
     requestId: string,
     downloadHistoryId: string,
     downloadClientId: string,
-    downloadClient: 'qbittorrent' | 'sabnzbd',
+    downloadClient: DownloadClientType,
     delaySeconds: number = 0
   ): Promise<string> {
     return await this.addJob(
@@ -692,6 +709,23 @@ export class JobQueueService {
       } as CleanupSeededTorrentsPayload,
       {
         priority: 10,
+      }
+    );
+  }
+
+  /**
+   * Add sync Goodreads shelves job
+   */
+  async addSyncGoodreadsShelvesJob(scheduledJobId?: string, shelfId?: string, maxLookupsPerShelf?: number): Promise<string> {
+    return await this.addJob(
+      'sync_goodreads_shelves',
+      {
+        scheduledJobId,
+        shelfId,
+        maxLookupsPerShelf,
+      } as SyncGoodreadsShelvesPayload,
+      {
+        priority: 7,
       }
     );
   }
@@ -912,23 +946,30 @@ export class JobQueueService {
    * Add notification job
    */
   async addNotificationJob(
-    event: 'request_pending_approval' | 'request_approved' | 'request_available' | 'request_error',
+    event: NotificationEvent,
     requestId: string,
     title: string,
     author: string,
     userName: string,
-    message?: string
+    message?: string,
+    requestType?: string
   ): Promise<string> {
     logger.info(`Queueing notification: ${event}`, { requestId, title, userName });
     return await this.addJob(
       'send_notification',
       {
         event,
-        requestId,
+        // issue_reported passes an issue ID, not a request ID — omit from payload
+        // so addJob doesn't try to create a FK to the requests table.
+        // The ID is still available in the notification payload for display.
+        requestId: event === 'issue_reported' ? undefined : requestId,
         title,
         author,
         userName,
         message,
+        requestType,
+        // Pass the original ID for notification display (e.g., Discord footer)
+        ...(event === 'issue_reported' && { issueId: requestId }),
         timestamp: new Date(),
       } as SendNotificationPayload,
       {

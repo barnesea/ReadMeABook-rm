@@ -18,6 +18,9 @@ export async function GET() {
     // Check if local login is disabled via environment variable
     const localLoginDisabled = process.env.DISABLE_LOCAL_LOGIN === 'true';
 
+    // Check if weak passwords are allowed via environment variable
+    const allowWeakPassword = process.env.ALLOW_WEAK_PASSWORD === 'true';
+
     // Check if automation (Phase 3) is configured by checking for Prowlarr/indexer config
     const indexerType = await configService.get('indexer.type');
     const prowlarrUrl = await configService.get('indexer.prowlarr_url');
@@ -47,6 +50,7 @@ export async function GET() {
         hasLocalUsers,
         oidcProviderName: oidcEnabled ? oidcProviderName : null,
         localLoginDisabled,
+        allowWeakPassword,
         automationEnabled,
       });
     } else {
@@ -65,6 +69,7 @@ export async function GET() {
         hasLocalUsers,
         oidcProviderName: null,
         localLoginDisabled,
+        allowWeakPassword,
         automationEnabled,
       });
     }
@@ -72,6 +77,7 @@ export async function GET() {
     logger.error('Failed to fetch auth providers', { error: error instanceof Error ? error.message : String(error) });
     // Default to Plex mode if config can't be read
     const localLoginDisabled = process.env.DISABLE_LOCAL_LOGIN === 'true';
+    const allowWeakPassword = process.env.ALLOW_WEAK_PASSWORD === 'true';
     return NextResponse.json({
       backendMode: 'plex',
       providers: ['plex'],
@@ -79,6 +85,7 @@ export async function GET() {
       hasLocalUsers: false,
       oidcProviderName: null,
       localLoginDisabled,
+      allowWeakPassword,
       automationEnabled: false,
     });
   }

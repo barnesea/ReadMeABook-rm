@@ -468,6 +468,7 @@ describe('Request Approval Workflow', () => {
           plexUsername: true,
           role: true,
           autoApproveRequests: true,
+          interactiveSearchAccess: true,
         },
       });
     });

@@ -106,6 +106,7 @@ const settingsFixture = {
     downloadDir: '',
     mediaDir: '',
     audiobookPathTemplate: '',
+    ebookPathTemplate: '',
     metadataTaggingEnabled: true,
     chapterMergingEnabled: false,
   },

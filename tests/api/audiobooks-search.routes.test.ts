@@ -13,6 +13,7 @@ const configServiceMock = vi.hoisted(() => ({
 }));
 const prowlarrMock = vi.hoisted(() => ({
   search: vi.fn(),
+  searchWithVariations: vi.fn(),
 }));
 const rankTorrentsMock = vi.hoisted(() => vi.fn());
 const groupIndexersMock = vi.hoisted(() => vi.fn());
@@ -67,8 +68,8 @@ describe('Audiobooks search torrents route', () => {
       .mockResolvedValueOnce(JSON.stringify([{ id: 1, name: 'Indexer', protocol: 'torrent', priority: 10 }]))
       .mockResolvedValueOnce(null);
 
-    groupIndexersMock.mockReturnValue([{ categories: [1], indexerIds: [1] }]);
-    prowlarrMock.search.mockResolvedValue([{ title: 'Result', size: 100, indexer: 'Indexer', indexerId: 1 }]);
+    groupIndexersMock.mockReturnValue({ groups: [{ categories: [1], indexerIds: [1] }], skippedIndexers: [] });
+    prowlarrMock.searchWithVariations.mockResolvedValue([{ title: 'Result', size: 100, indexer: 'Indexer', indexerId: 1 }]);
     rankTorrentsMock.mockReturnValue([
       {
         title: 'Result',

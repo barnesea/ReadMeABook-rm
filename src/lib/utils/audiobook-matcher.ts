@@ -241,11 +241,19 @@ export async function enrichAudiobooksWithMatches(
     }
   }
 
+  // Enrich with reported issue status
+  const { getOpenIssuesByAsins } = await import('@/lib/services/reported-issue.service');
+  const asinsWithIssues = await getOpenIssuesByAsins(asins);
+  for (const result of results) {
+    (result as any).hasReportedIssue = asinsWithIssues.has(result.asin);
+  }
+
   logger.debug('Batch summary', {
     total: results.length,
     available: results.filter(r => r.isAvailable).length,
     notAvailable: results.filter(r => !r.isAvailable).length,
     requested: userId ? results.filter(r => (r as any).isRequested).length : 'N/A',
+    reportedIssues: asinsWithIssues.size,
   });
 
   return results;

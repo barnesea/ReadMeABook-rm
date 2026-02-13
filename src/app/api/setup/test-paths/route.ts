@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
+import { requireSetupIncompleteOrAdmin } from '@/lib/middleware/auth';
 import { RMABLogger } from '@/lib/utils/logger';
 import { validateTemplate, generateMockPreviews } from '@/lib/utils/path-template.util';
 
@@ -45,8 +46,9 @@ async function testPath(dirPath: string): Promise<boolean> {
 }
 
 export async function POST(request: NextRequest) {
+  return requireSetupIncompleteOrAdmin(request, async (req) => {
   try {
-    const { downloadDir, mediaDir, audiobookPathTemplate } = await request.json();
+    const { downloadDir, mediaDir, audiobookPathTemplate } = await req.json();
 
     if (!downloadDir || !mediaDir) {
       return NextResponse.json(
@@ -126,4 +128,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

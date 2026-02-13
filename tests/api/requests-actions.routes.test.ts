@@ -10,9 +10,11 @@ let authRequest: any;
 
 const prismaMock = createPrismaMock();
 const requireAuthMock = vi.hoisted(() => vi.fn());
-const prowlarrMock = vi.hoisted(() => ({ search: vi.fn() }));
+const prowlarrMock = vi.hoisted(() => ({ search: vi.fn(), searchWithVariations: vi.fn() }));
 const rankTorrentsMock = vi.hoisted(() => vi.fn());
 const configServiceMock = vi.hoisted(() => ({ get: vi.fn() }));
+const groupIndexersMock = vi.hoisted(() => vi.fn());
+const groupDescriptionMock = vi.hoisted(() => vi.fn(() => 'Group'));
 const configState = vi.hoisted(() => ({
   values: new Map<string, string>(),
 }));
@@ -23,6 +25,9 @@ const jobQueueMock = vi.hoisted(() => ({
   addSearchEbookJob: vi.fn(() => Promise.resolve()),
 }));
 const downloadEbookMock = vi.hoisted(() => vi.fn());
+const audibleServiceMock = vi.hoisted(() => ({
+  getRuntime: vi.fn(),
+}));
 const fsMock = vi.hoisted(() => ({
   access: vi.fn(),
 }));
@@ -44,6 +49,11 @@ vi.mock('@/lib/utils/ranking-algorithm', () => ({
   rankTorrents: rankTorrentsMock,
 }));
 
+vi.mock('@/lib/utils/indexer-grouping', () => ({
+  groupIndexersByCategories: groupIndexersMock,
+  getGroupDescription: groupDescriptionMock,
+}));
+
 vi.mock('@/lib/services/config.service', () => ({
   getConfigService: () => configServiceMock,
 }));
@@ -54,6 +64,10 @@ vi.mock('@/lib/services/job-queue.service', () => ({
 
 vi.mock('@/lib/services/ebook-scraper', () => ({
   downloadEbook: downloadEbookMock,
+}));
+
+vi.mock('@/lib/integrations/audible.service', () => ({
+  getAudibleService: () => audibleServiceMock,
 }));
 
 vi.mock('fs/promises', () => ({ default: fsMock, ...fsMock, constants: { R_OK: 4 } }));
@@ -72,18 +86,24 @@ describe('Request action routes', () => {
     );
   });
 
-  it('performs interactive search and ranks results', async () => {
+  it('performs interactive search and ranks results with runtime from ASIN', async () => {
     authRequest.json.mockResolvedValue({});
     prismaMock.request.findUnique.mockResolvedValueOnce({
       id: 'req-1',
       userId: 'user-1',
-      audiobook: { title: 'Title', author: 'Author' },
+      audiobook: { title: 'Title', author: 'Author', audibleAsin: 'B00ASIN123' },
     });
-    configServiceMock.get.mockResolvedValueOnce(JSON.stringify([{ id: 1, priority: 10 }]));
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      role: 'user',
+      interactiveSearchAccess: null,
+    });
+    configServiceMock.get.mockResolvedValueOnce(JSON.stringify([{ id: 1, priority: 10, categories: [3030] }]));
     configServiceMock.get.mockResolvedValueOnce(null);
-    prowlarrMock.search.mockResolvedValueOnce([{ title: 'Result', size: 100 }]);
+    groupIndexersMock.mockReturnValue({ groups: [{ categories: [3030], indexerIds: [1] }], skippedIndexers: [] });
+    prowlarrMock.searchWithVariations.mockResolvedValueOnce([{ title: 'Result', size: 500 * 1024 * 1024 }]);
+    audibleServiceMock.getRuntime.mockResolvedValueOnce(600);
     rankTorrentsMock.mockReturnValueOnce([
-      { title: 'Result', score: 50, breakdown: { matchScore: 50, formatScore: 0, seederScore: 0, notes: [] }, bonusPoints: 0, bonusModifiers: [], finalScore: 50 },
+      { title: 'Result', size: 500 * 1024 * 1024, score: 50, breakdown: { matchScore: 50, formatScore: 0, sizeScore: 12, seederScore: 0, notes: [] }, bonusPoints: 0, bonusModifiers: [], finalScore: 62 },
     ]);
 
     const { POST } = await import('@/app/api/requests/[id]/interactive-search/route');
@@ -92,6 +112,77 @@ describe('Request action routes', () => {
 
     expect(payload.success).toBe(true);
     expect(payload.results[0].rank).toBe(1);
+    expect(audibleServiceMock.getRuntime).toHaveBeenCalledWith('B00ASIN123');
+    expect(rankTorrentsMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ title: 'Title', author: 'Author', durationMinutes: 600 }),
+      expect.any(Object)
+    );
+  });
+
+  it('performs interactive search without runtime when no ASIN', async () => {
+    authRequest.json.mockResolvedValue({});
+    prismaMock.request.findUnique.mockResolvedValueOnce({
+      id: 'req-1b',
+      userId: 'user-1',
+      audiobook: { title: 'Title', author: 'Author', audibleAsin: null },
+    });
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      role: 'user',
+      interactiveSearchAccess: null,
+    });
+    configServiceMock.get.mockResolvedValueOnce(JSON.stringify([{ id: 1, priority: 10, categories: [3030] }]));
+    configServiceMock.get.mockResolvedValueOnce(null);
+    groupIndexersMock.mockReturnValue({ groups: [{ categories: [3030], indexerIds: [1] }], skippedIndexers: [] });
+    prowlarrMock.searchWithVariations.mockResolvedValueOnce([{ title: 'Result', size: 100 }]);
+    rankTorrentsMock.mockReturnValueOnce([
+      { title: 'Result', size: 100, score: 50, breakdown: { matchScore: 50, formatScore: 0, sizeScore: 0, seederScore: 0, notes: [] }, bonusPoints: 0, bonusModifiers: [], finalScore: 50 },
+    ]);
+
+    const { POST } = await import('@/app/api/requests/[id]/interactive-search/route');
+    const response = await POST({} as any, { params: Promise.resolve({ id: 'req-1b' }) });
+    const payload = await response.json();
+
+    expect(payload.success).toBe(true);
+    expect(audibleServiceMock.getRuntime).not.toHaveBeenCalled();
+    expect(rankTorrentsMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ title: 'Title', author: 'Author', durationMinutes: undefined }),
+      expect.any(Object)
+    );
+  });
+
+  it('performs interactive search gracefully when runtime fetch fails', async () => {
+    authRequest.json.mockResolvedValue({});
+    prismaMock.request.findUnique.mockResolvedValueOnce({
+      id: 'req-1c',
+      userId: 'user-1',
+      audiobook: { title: 'Title', author: 'Author', audibleAsin: 'B00FAIL' },
+    });
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      role: 'user',
+      interactiveSearchAccess: null,
+    });
+    configServiceMock.get.mockResolvedValueOnce(JSON.stringify([{ id: 1, priority: 10, categories: [3030] }]));
+    configServiceMock.get.mockResolvedValueOnce(null);
+    groupIndexersMock.mockReturnValue({ groups: [{ categories: [3030], indexerIds: [1] }], skippedIndexers: [] });
+    prowlarrMock.searchWithVariations.mockResolvedValueOnce([{ title: 'Result', size: 100 }]);
+    audibleServiceMock.getRuntime.mockRejectedValueOnce(new Error('Network error'));
+    rankTorrentsMock.mockReturnValueOnce([
+      { title: 'Result', size: 100, score: 50, breakdown: { matchScore: 50, formatScore: 0, sizeScore: 0, seederScore: 0, notes: [] }, bonusPoints: 0, bonusModifiers: [], finalScore: 50 },
+    ]);
+
+    const { POST } = await import('@/app/api/requests/[id]/interactive-search/route');
+    const response = await POST({} as any, { params: Promise.resolve({ id: 'req-1c' }) });
+    const payload = await response.json();
+
+    expect(payload.success).toBe(true);
+    expect(payload.results).toHaveLength(1);
+    expect(rankTorrentsMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ durationMinutes: undefined }),
+      expect.any(Object)
+    );
   });
 
   it('triggers manual search job', async () => {

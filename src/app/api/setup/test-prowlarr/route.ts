@@ -5,13 +5,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ProwlarrService } from '@/lib/integrations/prowlarr.service';
+import { requireSetupIncomplete } from '@/lib/middleware/auth';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Setup.TestProwlarr');
 
 export async function POST(request: NextRequest) {
+  return requireSetupIncomplete(request, async (req) => {
   try {
-    const { url, apiKey } = await request.json();
+    const { url, apiKey } = await req.json();
 
     if (!url || !apiKey) {
       return NextResponse.json(
@@ -50,4 +52,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

@@ -6,8 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { getConfigService } from '@/lib/services/config.service';
-import { getDownloadClientManager } from '@/lib/services/download-client-manager.service';
-import { DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { getDownloadClientManager, DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { SUPPORTED_CLIENT_TYPES } from '@/lib/interfaces/download-client.interface';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Admin.Settings.DownloadClients.Test');
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
         const {
           clientId, // Optional: existing client ID to use stored password
           type,
+          name: clientName,
           url,
           username,
           password,
@@ -33,9 +34,9 @@ export async function POST(request: NextRequest) {
         } = body;
 
         // Validate type
-        if (type !== 'qbittorrent' && type !== 'sabnzbd') {
+        if (!SUPPORTED_CLIENT_TYPES.includes(type)) {
           return NextResponse.json(
-            { error: 'Invalid client type. Must be qbittorrent or sabnzbd' },
+            { error: `Invalid client type. Must be one of: ${SUPPORTED_CLIENT_TYPES.join(', ')}` },
             { status: 400 }
           );
         }
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
         const testConfig: DownloadClientConfig = {
           id: 'test',
           type,
-          name: 'Test Client',
+          name: clientName || type,
           enabled: true,
           url,
           username: effectiveUsername || '',

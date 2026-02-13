@@ -6,22 +6,31 @@
 'use client';
 
 import React from 'react';
+import { DownloadClientType, getClientDisplayName } from '@/lib/interfaces/download-client.interface';
 
 interface DownloadClientCardProps {
   client: {
     id: string;
-    type: 'qbittorrent' | 'sabnzbd';
+    type: DownloadClientType;
     name: string;
     url: string;
     enabled: boolean;
+    customPath?: string;
+    postImportCategory?: string;
   };
   onEdit: () => void;
   onDelete: () => void;
 }
 
 export function DownloadClientCard({ client, onEdit, onDelete }: DownloadClientCardProps) {
-  const typeName = client.type === 'qbittorrent' ? 'qBittorrent' : 'SABnzbd';
-  const typeColor = client.type === 'qbittorrent' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
+  const typeName = getClientDisplayName(client.type);
+  const typeColorMap: Record<string, string> = {
+    qbittorrent: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+    transmission: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+    sabnzbd: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300',
+    nzbget: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+  };
+  const typeColor = typeColorMap[client.type] || typeColorMap.qbittorrent;
 
   // Truncate URL for display
   const displayUrl = client.url.length > 40 ? `${client.url.substring(0, 40)}...` : client.url;
@@ -49,6 +58,16 @@ export function DownloadClientCard({ client, onEdit, onDelete }: DownloadClientC
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate" title={client.url}>
               {displayUrl}
             </p>
+            {client.customPath && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 truncate" title={`Custom path: ${client.customPath}`}>
+                Path: {client.customPath}
+              </p>
+            )}
+            {client.postImportCategory && (
+              <p className="text-xs text-purple-600 dark:text-purple-400 truncate" title={`Post-import category: ${client.postImportCategory}`}>
+                Post-import: {client.postImportCategory}
+              </p>
+            )}
           </div>
         </div>
 

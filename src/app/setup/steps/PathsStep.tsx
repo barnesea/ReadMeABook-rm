@@ -14,7 +14,8 @@ interface PathsStepProps {
   mediaDir: string;
   metadataTaggingEnabled: boolean;
   chapterMergingEnabled: boolean;
-  onUpdate: (field: string, value: string | boolean) => void;
+  pathsTested: boolean;
+  onUpdate: (field: string, value: any) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -24,6 +25,7 @@ export function PathsStep({
   mediaDir,
   metadataTaggingEnabled,
   chapterMergingEnabled,
+  pathsTested,
   onUpdate,
   onNext,
   onBack,
@@ -34,7 +36,11 @@ export function PathsStep({
     message: string;
     downloadDirValid?: boolean;
     mediaDirValid?: boolean;
-  } | null>(null);
+  } | null>(
+    pathsTested
+      ? { success: true, message: 'Paths validated previously.', downloadDirValid: true, mediaDirValid: true }
+      : null
+  );
 
   const testPaths = async () => {
     setTesting(true);
@@ -59,6 +65,7 @@ export function PathsStep({
           downloadDirValid: data.downloadDirValid,
           mediaDirValid: data.mediaDirValid,
         });
+        onUpdate('pathsTested', true);
       } else {
         setTestResult({
           success: false,
@@ -66,12 +73,14 @@ export function PathsStep({
           downloadDirValid: data.downloadDirValid,
           mediaDirValid: data.mediaDirValid,
         });
+        onUpdate('pathsTested', false);
       }
     } catch (error) {
       setTestResult({
         success: false,
         message: error instanceof Error ? error.message : 'Path validation failed',
       });
+      onUpdate('pathsTested', false);
     } finally {
       setTesting(false);
     }

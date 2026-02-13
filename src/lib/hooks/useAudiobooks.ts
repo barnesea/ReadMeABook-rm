@@ -12,6 +12,7 @@ export interface Audiobook {
   asin: string;
   title: string;
   author: string;
+  authorAsin?: string;
   narrator?: string;
   description?: string;
   coverArtUrl?: string;
@@ -26,6 +27,7 @@ export interface Audiobook {
   requestStatus?: string | null;  // Status of request (if any)
   requestId?: string | null;  // ID of request (if any)
   requestedByUsername?: string | null;  // Username who requested (only if not current user)
+  hasReportedIssue?: boolean;  // True if an open issue exists for this audiobook
 }
 
 export function useAudiobooks(type: 'popular' | 'new-releases', limit: number = 20, page: number = 1) {
@@ -80,6 +82,7 @@ export function useAudiobookDetails(asin: string | null) {
 
   return {
     audiobook: data?.audiobook || null,
+    audibleBaseUrl: data?.audibleBaseUrl || 'https://www.audible.com',
     isLoading,
     error,
   };

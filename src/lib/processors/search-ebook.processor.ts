@@ -243,9 +243,14 @@ async function searchIndexers(
   const flagConfigs = flagConfigStr ? JSON.parse(flagConfigStr) : [];
 
   // Group indexers by their EBOOK category configuration
-  const groups = groupIndexersByCategories(indexersConfig, 'ebook');
+  const { groups, skippedIndexers } = groupIndexersByCategories(indexersConfig, 'ebook');
 
-  logger.info(`Searching ${indexersConfig.length} enabled indexers in ${groups.length} group${groups.length > 1 ? 's' : ''}`);
+  if (skippedIndexers.length > 0) {
+    const skippedNames = skippedIndexers.map(idx => idx.name).join(', ');
+    logger.info(`Skipping ${skippedIndexers.length} indexer(s) with no ebook categories: ${skippedNames}`);
+  }
+
+  logger.info(`Searching ${indexersConfig.length - skippedIndexers.length} enabled indexers in ${groups.length} group${groups.length > 1 ? 's' : ''}`);
 
   // Log each group for transparency
   groups.forEach((group, index) => {

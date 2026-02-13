@@ -33,6 +33,10 @@ vi.mock('@/components/requests/RequestCard', () => ({
   ),
 }));
 
+vi.mock('@/contexts/PreferencesContext', () => ({
+  usePreferences: () => ({ squareCovers: false, setSquareCovers: vi.fn(), cardSize: 5, setCardSize: vi.fn() }),
+}));
+
 describe('RequestsPage', () => {
   beforeEach(() => {
     resetMockAuthState();

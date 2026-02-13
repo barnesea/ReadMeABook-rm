@@ -8,7 +8,9 @@ import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { getProwlarrService } from '@/lib/integrations/prowlarr.service';
 import { rankTorrents } from '@/lib/utils/ranking-algorithm';
+import { groupIndexersByCategories, getGroupDescription } from '@/lib/utils/indexer-grouping';
 import { RMABLogger } from '@/lib/utils/logger';
+import { resolveInteractiveSearchAccess } from '@/lib/utils/permissions';
 
 const logger = RMABLogger.create('API.InteractiveSearch');
 
@@ -71,6 +73,18 @@ export async function POST(
         );
       }
 
+      // Check interactive search access permission
+      const callingUser = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { role: true, interactiveSearchAccess: true },
+      });
+      if (!callingUser || !(await resolveInteractiveSearchAccess(callingUser.role, callingUser.interactiveSearchAccess))) {
+        return NextResponse.json(
+          { error: 'Forbidden', message: 'You do not have interactive search access. Contact your admin to enable this permission.' },
+          { status: 403 }
+        );
+      }
+
       // Get enabled indexers from configuration
       const { getConfigService } = await import('@/lib/services/config.service');
       const configService = getConfigService();
@@ -84,9 +98,8 @@ export async function POST(
       }
 
       const indexersConfig = JSON.parse(indexersConfigStr);
-      const enabledIndexerIds = indexersConfig.map((indexer: any) => indexer.id);
 
-      if (enabledIndexerIds.length === 0) {
+      if (indexersConfig.length === 0) {
         return NextResponse.json(
           { error: 'ConfigError', message: 'No indexers enabled. Please enable at least one indexer in settings.' },
           { status: 400 }
@@ -102,22 +115,53 @@ export async function POST(
       const flagConfigStr = await configService.get('indexer_flag_config');
       const flagConfigs = flagConfigStr ? JSON.parse(flagConfigStr) : [];
 
-      // Search Prowlarr for torrents - ONLY enabled indexers
-      const prowlarr = await getProwlarrService();
-      // Use custom title if provided, otherwise use audiobook's title
-      const searchQuery = customTitle || requestRecord.audiobook.title;
+      // Group indexers by their category configuration
+      const { groups, skippedIndexers } = groupIndexersByCategories(indexersConfig);
 
-      logger.info(`Searching ${enabledIndexerIds.length} enabled indexers`, { searchQuery });
+      if (skippedIndexers.length > 0) {
+        const skippedNames = skippedIndexers.map(idx => idx.name).join(', ');
+        logger.info(`Skipping ${skippedIndexers.length} indexer(s) with no audiobook categories: ${skippedNames}`);
+      }
+
+      // Use custom title if provided, otherwise use audiobook's title
+      const searchTitle = customTitle || requestRecord.audiobook.title;
+      const searchAuthor = requestRecord.audiobook.author;
+
+      logger.info(`Searching ${indexersConfig.length - skippedIndexers.length} enabled indexers in ${groups.length} group${groups.length > 1 ? 's' : ''}`, { searchTitle });
       if (customTitle) {
         logger.debug('Using custom search title', { customTitle, originalTitle: requestRecord.audiobook.title });
       }
 
-      const results = await prowlarr.search(searchQuery, {
-        indexerIds: enabledIndexerIds,
-        maxResults: 100, // Increased limit for broader search
+      // Log each group for transparency
+      groups.forEach((group, index) => {
+        logger.debug(`Group ${index + 1}: ${getGroupDescription(group)}`);
       });
 
-      logger.debug(`Found ${results.length} raw results`, { requestId: id });
+      // Search Prowlarr for each group and combine results
+      const prowlarr = await getProwlarrService();
+      const allResults = [];
+
+      for (let i = 0; i < groups.length; i++) {
+        const group = groups[i];
+        logger.debug(`Searching group ${i + 1}/${groups.length}: ${getGroupDescription(group)}`);
+
+        try {
+          const groupResults = await prowlarr.searchWithVariations(searchTitle, searchAuthor, {
+            categories: group.categories,
+            indexerIds: group.indexerIds,
+            maxResults: 100,
+          });
+
+          logger.debug(`Group ${i + 1} returned ${groupResults.length} results`);
+          allResults.push(...groupResults);
+        } catch (error) {
+          logger.error(`Group ${i + 1} search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Continue with other groups even if one fails
+        }
+      }
+
+      const results = allResults;
+      logger.info(`Found ${results.length} total results from ${groups.length} group${groups.length > 1 ? 's' : ''}`, { requestId: id });
 
       if (results.length === 0) {
         return NextResponse.json({
@@ -127,12 +171,31 @@ export async function POST(
         });
       }
 
+      // Fetch runtime from Audnexus if ASIN available (for size-based scoring)
+      let durationMinutes: number | undefined;
+      if (requestRecord.audiobook.audibleAsin) {
+        try {
+          const { getAudibleService } = await import('@/lib/integrations/audible.service');
+          const audibleService = getAudibleService();
+          const runtime = await audibleService.getRuntime(requestRecord.audiobook.audibleAsin);
+          if (runtime) {
+            durationMinutes = runtime;
+            logger.info(`Fetched runtime: ${runtime} minutes for ASIN ${requestRecord.audiobook.audibleAsin}`);
+          } else {
+            logger.debug(`No runtime found for ASIN ${requestRecord.audiobook.audibleAsin}`);
+          }
+        } catch (error) {
+          logger.debug(`Failed to fetch runtime for ASIN ${requestRecord.audiobook.audibleAsin}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+
       // Rank torrents using the ranking algorithm with indexer priorities and flag configs
       // Always use the audiobook's title/author for ranking (not custom search query)
       // requireAuthor: false - interactive mode, show all results for user decision
       const rankedResults = rankTorrents(results, {
         title: requestRecord.audiobook.title,
         author: requestRecord.audiobook.author,
+        durationMinutes,
       }, {
         indexerPriorities,
         flagConfigs,
@@ -147,17 +210,23 @@ export async function POST(
       const top3 = rankedResults.slice(0, 3);
       if (top3.length > 0) {
         logger.debug('==================== RANKING DEBUG ====================');
-        logger.debug('Search parameters', { searchQuery, requestedTitle: requestRecord.audiobook.title, requestedAuthor: requestRecord.audiobook.author });
+        logger.debug('Search parameters', { searchTitle, requestedTitle: requestRecord.audiobook.title, requestedAuthor: requestRecord.audiobook.author });
         logger.debug(`Top ${top3.length} results (out of ${rankedResults.length} total)`);
         logger.debug('--------------------------------------------------------');
         top3.forEach((result, index) => {
+          const sizeMB = (result.size / (1024 * 1024)).toFixed(1);
+          const mbPerMin = durationMinutes ? ((result.size / (1024 * 1024)) / durationMinutes).toFixed(2) : 'N/A';
+
           logger.debug(`${index + 1}. "${result.title}"`, {
             indexer: result.indexer,
             indexerId: result.indexerId,
             baseScore: `${result.score.toFixed(1)}/100`,
             matchScore: `${result.breakdown.matchScore.toFixed(1)}/60`,
-            formatScore: `${result.breakdown.formatScore.toFixed(1)}/25 (${result.format || 'unknown'})`,
-            seederScore: `${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders} seeders)`,
+            formatScore: `${result.breakdown.formatScore.toFixed(1)}/10 (${result.format || 'unknown'})`,
+            sizeScore: durationMinutes
+              ? `${result.breakdown.sizeScore.toFixed(1)}/15 (${sizeMB} MB, ${mbPerMin} MB/min)`
+              : 'N/A (no runtime)',
+            seederScore: `${result.breakdown.seederScore.toFixed(1)}/15 (${result.seeders !== undefined ? result.seeders + ' seeders' : 'N/A for Usenet'})`,
             bonusPoints: `+${result.bonusPoints.toFixed(1)}`,
             bonusModifiers: result.bonusModifiers.map(mod => `${mod.reason}: +${mod.points.toFixed(1)}`),
             finalScore: result.finalScore.toFixed(1),

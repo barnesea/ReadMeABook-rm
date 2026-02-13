@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
+import { resolvePermission, getGlobalBooleanSetting } from '@/lib/utils/permissions';
 
 /**
  * GET /api/auth/me
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
         authProvider: true,
         createdAt: true,
         lastLoginAt: true,
+        interactiveSearchAccess: true,
       },
     });
 
@@ -53,6 +55,14 @@ export async function GET(request: NextRequest) {
     // Determine if user is local admin (setup admin with local authentication)
     const isLocalAdmin = user.isSetupAdmin && user.plexId.startsWith('local-');
 
+    // Resolve effective permissions
+    const globalInteractiveSearch = await getGlobalBooleanSetting('interactive_search_access', true);
+    const effectiveInteractiveSearch = resolvePermission(
+      user.role,
+      user.interactiveSearchAccess,
+      globalInteractiveSearch
+    );
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -65,6 +75,9 @@ export async function GET(request: NextRequest) {
         authProvider: user.authProvider,
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
+        permissions: {
+          interactiveSearch: effectiveInteractiveSearch,
+        },
       },
     });
   });

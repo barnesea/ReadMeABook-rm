@@ -44,6 +44,12 @@ export async function processAudibleRefresh(payload: AudibleRefreshPayload): Pro
 
     // Fetch popular and new releases - 200 items each
     const popular = await audibleService.getPopularAudiobooks(200);
+
+    // Batch cooldown between popular and new releases to reduce detection
+    const batchCooldownMs = 15000 + Math.floor(Math.random() * 15000);
+    logger.info(`Batch cooldown: waiting ${Math.round(batchCooldownMs / 1000)}s before fetching new releases...`);
+    await new Promise(resolve => setTimeout(resolve, batchCooldownMs));
+
     const newReleases = await audibleService.getNewReleases(200);
 
     logger.info(`Fetched ${popular.length} popular, ${newReleases.length} new releases from Audible`);

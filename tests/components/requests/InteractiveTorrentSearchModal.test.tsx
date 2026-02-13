@@ -17,6 +17,15 @@ const searchEbooksMock = vi.hoisted(() => vi.fn());
 const selectEbookMock = vi.hoisted(() => vi.fn());
 const searchEbooksByAsinMock = vi.hoisted(() => vi.fn());
 const selectEbookByAsinMock = vi.hoisted(() => vi.fn());
+const replaceWithTorrentMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/hooks/useReportedIssues', () => ({
+  useReplaceWithTorrent: () => ({
+    replaceWithTorrent: replaceWithTorrentMock,
+    isLoading: false,
+    error: null,
+  }),
+}));
 
 vi.mock('@/lib/hooks/useRequests', () => ({
   useInteractiveSearch: () => ({

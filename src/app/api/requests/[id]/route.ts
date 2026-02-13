@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { RMABLogger } from '@/lib/utils/logger';
+import { CLIENT_PROTOCOL_MAP, DownloadClientType } from '@/lib/interfaces/download-client.interface';
 
 const logger = RMABLogger.create('API.RequestById');
 
@@ -200,28 +201,11 @@ export async function PATCH(
           // Get download path from the appropriate download client
           let downloadPath: string;
 
-          if (downloadHistory.torrentHash) {
-            // qBittorrent - get path from torrent info
-            const { getQBittorrentService } = await import('@/lib/integrations/qbittorrent.service');
-            const qbt = await getQBittorrentService();
-            const torrent = await qbt.getTorrent(downloadHistory.torrentHash);
-            downloadPath = `${torrent.save_path}/${torrent.name}`;
-          } else if (downloadHistory.nzbId) {
-            // SABnzbd - get path from NZB info
-            const { getSABnzbdService } = await import('@/lib/integrations/sabnzbd.service');
-            const sabnzbd = await getSABnzbdService();
-            const nzbInfo = await sabnzbd.getNZB(downloadHistory.nzbId);
-            if (!nzbInfo || !nzbInfo.downloadPath) {
-              return NextResponse.json(
-                {
-                  error: 'ValidationError',
-                  message: 'Download path not available from SABnzbd',
-                },
-                { status: 400 }
-              );
-            }
-            downloadPath = nzbInfo.downloadPath;
-          } else {
+          // Get download path via unified interface
+          const clientId = downloadHistory.downloadClientId || downloadHistory.torrentHash || downloadHistory.nzbId;
+          const clientType = downloadHistory.downloadClient || 'qbittorrent';
+
+          if (!clientId || clientType === 'direct') {
             return NextResponse.json(
               {
                 error: 'ValidationError',
@@ -230,6 +214,35 @@ export async function PATCH(
               { status: 400 }
             );
           }
+
+          const { getConfigService } = await import('@/lib/services/config.service');
+          const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
+          const configService = getConfigService();
+          const manager = getDownloadClientManager(configService);
+          const protocol = CLIENT_PROTOCOL_MAP[clientType as DownloadClientType] || 'torrent';
+          const client = await manager.getClientServiceForProtocol(protocol as 'torrent' | 'usenet');
+
+          if (!client) {
+            return NextResponse.json(
+              {
+                error: 'ValidationError',
+                message: `No ${clientType} client configured`,
+              },
+              { status: 400 }
+            );
+          }
+
+          const info = await client.getDownload(clientId);
+          if (!info?.downloadPath) {
+            return NextResponse.json(
+              {
+                error: 'ValidationError',
+                message: `Download path not available from ${client.clientType}`,
+              },
+              { status: 400 }
+            );
+          }
+          downloadPath = info.downloadPath;
 
           await jobQueue.addOrganizeJob(
             id,

@@ -9,6 +9,49 @@ import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.BookDate.TestConnection');
 
+// Fetch available Claude models from the Anthropic API
+async function fetchClaudeModels(apiKey: string): Promise<{ id: string; name: string }[]> {
+  const allModels: { id: string; name: string }[] = [];
+  let afterId: string | undefined;
+
+  // Paginate through all available models
+  do {
+    const params = new URLSearchParams({ limit: '1000' });
+    if (afterId) {
+      params.set('after_id', afterId);
+    }
+
+    const response = await fetch(
+      `https://api.anthropic.com/v1/models?${params.toString()}`,
+      {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('Claude API error', { error: errorText });
+      throw new Error('Invalid Claude API key or connection failed');
+    }
+
+    const data = await response.json();
+
+    for (const model of data.data) {
+      allModels.push({
+        id: model.id,
+        name: model.display_name || model.id,
+      });
+    }
+
+    afterId = data.has_more ? data.last_id : undefined;
+  } while (afterId);
+
+  return allModels;
+}
+
 // Helper functions for custom provider
 function isValidBaseUrl(url: string): boolean {
   try {
@@ -141,32 +184,10 @@ async function authenticatedHandler(req: AuthenticatedRequest) {
         .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     } else if (provider === 'claude') {
-      // Claude: Hardcoded list (Anthropic doesn't have a public models API endpoint)
-      models = [
-        { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5 (Latest)' },
-        { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet' },
-        { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-        { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
-      ];
-
-      // Test connection with a simple API call
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': testApiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-haiku-20241022',
-          max_tokens: 10,
-          messages: [{ role: 'user', content: 'Test' }],
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('Claude API error', { error: errorText });
+      // Claude: Fetch models dynamically from the Anthropic Models API
+      try {
+        models = await fetchClaudeModels(testApiKey);
+      } catch {
         return NextResponse.json(
           { error: 'Invalid Claude API key or connection failed' },
           { status: 400 }
@@ -333,32 +354,10 @@ async function unauthenticatedHandler(req: NextRequest) {
         .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     } else if (provider === 'claude') {
-      // Claude: Hardcoded list (Anthropic doesn't have a public models API endpoint)
-      models = [
-        { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5 (Latest)' },
-        { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet' },
-        { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-        { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
-      ];
-
-      // Test connection with a simple API call
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-haiku-20241022',
-          max_tokens: 10,
-          messages: [{ role: 'user', content: 'Test' }],
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('Claude API error', { error: errorText });
+      // Claude: Fetch models dynamically from the Anthropic Models API
+      try {
+        models = await fetchClaudeModels(apiKey);
+      } catch {
         return NextResponse.json(
           { error: 'Invalid Claude API key or connection failed' },
           { status: 400 }

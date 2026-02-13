@@ -96,8 +96,6 @@ export function IndexerConfigModal({
   const [errors, setErrors] = useState<{
     priority?: string;
     seedingTimeMinutes?: string;
-    audiobookCategories?: string;
-    ebookCategories?: string;
   }>({});
 
   // Reset form when modal opens or indexer changes
@@ -134,26 +132,12 @@ export function IndexerConfigModal({
       newErrors.seedingTimeMinutes = 'Seeding time cannot be negative';
     }
 
-    if (audiobookCategories.length === 0) {
-      newErrors.audiobookCategories = 'At least one audiobook category must be selected';
-    }
-
-    if (ebookCategories.length === 0) {
-      newErrors.ebookCategories = 'At least one ebook category must be selected';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSave = () => {
     if (!validate()) {
-      // If there's a category error, switch to the relevant tab
-      if (errors.audiobookCategories && activeTab !== 'audiobook') {
-        setActiveTab('audiobook');
-      } else if (errors.ebookCategories && activeTab !== 'ebook') {
-        setActiveTab('ebook');
-      }
       return;
     }
 
@@ -202,8 +186,11 @@ export function IndexerConfigModal({
   // Get the current categories based on active tab
   const currentCategories = activeTab === 'audiobook' ? audiobookCategories : ebookCategories;
   const setCurrentCategories = activeTab === 'audiobook' ? setAudiobookCategories : setEbookCategories;
-  const currentError = activeTab === 'audiobook' ? errors.audiobookCategories : errors.ebookCategories;
   const defaultForTab = activeTab === 'audiobook' ? DEFAULT_AUDIOBOOK_CATEGORIES : DEFAULT_EBOOK_CATEGORIES;
+
+  // Warning state: no categories means this indexer is effectively disabled for that type
+  const audiobookDisabled = audiobookCategories.length === 0;
+  const ebookDisabled = ebookCategories.length === 0;
 
   return (
     <Modal
@@ -342,8 +329,8 @@ export function IndexerConfigModal({
               }`}
             >
               AudioBook
-              {errors.audiobookCategories && (
-                <span className="ml-2 text-red-500">!</span>
+              {audiobookDisabled && (
+                <span className="ml-2 text-amber-500" title="No categories — disabled for audiobooks">!</span>
               )}
             </button>
             <button
@@ -356,8 +343,8 @@ export function IndexerConfigModal({
               }`}
             >
               EBook
-              {errors.ebookCategories && (
-                <span className="ml-2 text-red-500">!</span>
+              {ebookDisabled && (
+                <span className="ml-2 text-amber-500" title="No categories — disabled for ebooks">!</span>
               )}
             </button>
           </div>
@@ -372,15 +359,23 @@ export function IndexerConfigModal({
           </div>
 
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-            {activeTab === 'audiobook'
-              ? 'Categories to search for audiobooks. Default: Audio/Audiobook [3030]'
-              : 'Categories to search for e-books. Default: Books/EBook [7020]'}
+            {currentCategories.length > 0
+              ? `Will search categories: [${currentCategories.join(', ')}]`
+              : activeTab === 'audiobook'
+                ? 'Default: Audio/Audiobook [3030]'
+                : 'Default: Books/EBook [7020]'}
           </p>
 
-          {currentError && (
-            <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-              {currentError}
-            </p>
+          {/* Warning when all categories are deselected for the active tab */}
+          {currentCategories.length === 0 && (
+            <div className="flex items-start gap-2 mt-2 p-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <svg className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                No categories selected. This indexer will not be searched for {activeTab === 'audiobook' ? 'audiobooks' : 'ebooks'}.
+              </p>
+            </div>
           )}
         </div>
 

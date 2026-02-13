@@ -34,6 +34,22 @@ vi.mock('next/image', () => ({
   default: (props: any) => <img {...props} />,
 }));
 
+vi.mock('@/contexts/PreferencesContext', () => ({
+  usePreferences: () => ({ squareCovers: false, setSquareCovers: vi.fn(), cardSize: 5, setCardSize: vi.fn() }),
+}));
+
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1', role: 'user', permissions: { interactiveSearch: true } },
+    accessToken: 'test-token',
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshToken: vi.fn(),
+    setAuthData: vi.fn(),
+  }),
+}));
+
 const baseRequest = {
   id: 'req-1',
   status: 'pending',

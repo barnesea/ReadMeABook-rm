@@ -11,11 +11,12 @@ import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 import { RMABLogger } from './logger';
+import { CHAPTER_MERGE_FORMATS } from '../constants/audio-formats';
 
 const execPromise = promisify(exec);
 
-// Supported audio formats for chapter merging
-const SUPPORTED_FORMATS = ['.mp3', '.m4a', '.m4b', '.mp4', '.aac'];
+// Supported audio formats for chapter merging (from shared constants)
+const SUPPORTED_FORMATS: readonly string[] = CHAPTER_MERGE_FORMATS;
 
 // Patterns that indicate chapter-based files
 const CHAPTER_PATTERNS = [
@@ -629,9 +630,9 @@ export async function mergeChapters(
     await fs.writeFile(metadataFile, chapterMetadata);
     await logger?.info(`Generated chapter metadata with ${chapters.length} chapter markers`);
 
-    // Determine if we need to re-encode (MP3 input requires conversion to AAC)
+    // Determine if we need to re-encode (non-AAC input requires conversion to AAC for M4B)
     const inputFormat = path.extname(chapters[0].path).toLowerCase();
-    const needsReencode = inputFormat === '.mp3';
+    const needsReencode = inputFormat === '.mp3' || inputFormat === '.flac' || inputFormat === '.aac';
 
     // Build ffmpeg command
     const args: string[] = [
@@ -646,26 +647,28 @@ export async function mergeChapters(
     ];
 
     if (needsReencode) {
-      // MP3 -> M4B requires re-encoding to AAC
+      // Non-AAC -> M4B requires re-encoding to AAC
       const bitrate = determineOutputBitrate(chapters);
 
       // Check for libfdk_aac (higher quality) or fall back to native aac
       const hasFdkAac = await checkLibFdkAac();
 
+      const formatLabel = inputFormat.slice(1).toUpperCase(); // '.mp3' -> 'MP3', '.flac' -> 'FLAC'
+
       if (hasFdkAac) {
         args.push('-c:a', 'libfdk_aac');
         args.push('-vbr', '4'); // VBR mode 4 (~128-160kbps, high quality)
-        await logger?.info(`Merge strategy: Re-encoding MP3 → AAC/M4B using libfdk_aac (high quality VBR, target ~${bitrate})`);
+        await logger?.info(`Merge strategy: Re-encoding ${formatLabel} → AAC/M4B using libfdk_aac (high quality VBR, target ~${bitrate})`);
       } else {
         // Use VBR for better quality at same average bitrate
         const vbrQuality = bitrateToVbrQuality(bitrate);
         args.push('-c:a', 'aac');
         args.push('-q:a', vbrQuality.toString());
         args.push('-profile:a', 'aac_low'); // AAC-LC profile for maximum compatibility
-        await logger?.info(`Merge strategy: Re-encoding MP3 → AAC/M4B using native AAC VBR (quality ${vbrQuality}, target ~${bitrate})`);
+        await logger?.info(`Merge strategy: Re-encoding ${formatLabel} → AAC/M4B using native AAC VBR (quality ${vbrQuality}, target ~${bitrate})`);
       }
     } else {
-      // M4A/M4B -> M4B can use codec copy (fast, lossless)
+      // M4A/M4B/MP4 -> M4B can use codec copy (fast, lossless)
       args.push('-c', 'copy');
       await logger?.info(`Merge strategy: Codec copy (lossless, fast - no re-encoding needed for ${inputFormat} input)`);
     }

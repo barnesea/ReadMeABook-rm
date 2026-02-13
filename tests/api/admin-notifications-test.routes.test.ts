@@ -30,8 +30,9 @@ vi.mock('@/lib/middleware/auth', () => ({
   requireAdmin: requireAdminMock,
 }));
 
-vi.mock('@/lib/services/notification.service', () => ({
+vi.mock('@/lib/services/notification', () => ({
   getNotificationService: () => notificationServiceMock,
+  getRegisteredProviderTypes: () => ['discord', 'ntfy', 'pushover'],
 }));
 
 describe('Admin notifications test route', () => {
@@ -115,6 +116,7 @@ describe('Admin notifications test route', () => {
           title: expect.any(String),
           author: expect.any(String),
           userName: 'Test User',
+          requestType: 'audiobook',
           timestamp: expect.any(Date),
         })
       );

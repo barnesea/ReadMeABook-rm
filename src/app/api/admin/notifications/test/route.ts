@@ -5,31 +5,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
-import { getNotificationService, NotificationBackendType, NotificationPayload } from '@/lib/services/notification.service';
+import { getNotificationService, getRegisteredProviderTypes, NotificationPayload } from '@/lib/services/notification';
 import { RMABLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 
 const logger = RMABLogger.create('API.Admin.Notifications.Test');
 
-const TestNotificationSchema = z.discriminatedUnion('mode', [
-  // Test existing backend by ID (uses stored config)
-  z.object({
-    mode: z.literal('backend'),
-    backendId: z.string(),
-  }),
-  // Test new config before saving
-  z.object({
-    mode: z.literal('config'),
-    type: z.enum(['discord', 'pushover', 'email', 'slack', 'telegram', 'webhook']),
-    config: z.record(z.any()),
-  }),
-]);
-
-// Support legacy format without mode
-const LegacyTestNotificationSchema = z.object({
+// Flexible schema: supports both backendId and type+config formats
+const TestNotificationSchema = z.object({
   backendId: z.string().optional(),
-  type: z.enum(['discord', 'pushover', 'email', 'slack', 'telegram', 'webhook']).optional(),
+  type: z.string().refine((val) => getRegisteredProviderTypes().includes(val), { message: 'Unsupported notification provider type' }).optional(),
   config: z.record(z.any()).optional(),
 });
 
@@ -42,66 +28,37 @@ export async function POST(request: NextRequest) {
     return requireAdmin(req, async () => {
       try {
         const body = await request.json();
+        const parsed = TestNotificationSchema.parse(body);
 
-        // Support legacy format for backward compatibility
-        const legacyParsed = LegacyTestNotificationSchema.safeParse(body);
-
-        let type: NotificationBackendType;
+        let type: string;
         let encryptedConfig: any;
 
         const notificationService = getNotificationService();
 
-        if (legacyParsed.success) {
-          // Legacy format
-          if (legacyParsed.data.backendId) {
-            // Test existing backend
-            const backend = await prisma.notificationBackend.findUnique({
-              where: { id: legacyParsed.data.backendId },
-            });
+        if (parsed.backendId) {
+          // Test existing backend by ID (uses stored config)
+          const backend = await prisma.notificationBackend.findUnique({
+            where: { id: parsed.backendId },
+          });
 
-            if (!backend) {
-              return NextResponse.json(
-                { error: 'NotFound', message: 'Backend not found' },
-                { status: 404 }
-              );
-            }
-
-            type = backend.type as NotificationBackendType;
-            encryptedConfig = backend.config; // Already encrypted in DB
-          } else if (legacyParsed.data.type && legacyParsed.data.config) {
-            // Test new config
-            type = legacyParsed.data.type as NotificationBackendType;
-            encryptedConfig = notificationService.encryptConfig(type, legacyParsed.data.config);
-          } else {
+          if (!backend) {
             return NextResponse.json(
-              { error: 'ValidationError', message: 'Must provide either backendId or type+config' },
-              { status: 400 }
+              { error: 'NotFound', message: 'Backend not found' },
+              { status: 404 }
             );
           }
+
+          type = backend.type;
+          encryptedConfig = backend.config; // Already encrypted in DB
+        } else if (parsed.type && parsed.config) {
+          // Test new config before saving
+          type = parsed.type;
+          encryptedConfig = notificationService.encryptConfig(type, parsed.config);
         } else {
-          // New format with discriminated union
-          const parsed = TestNotificationSchema.parse(body);
-
-          if (parsed.mode === 'backend') {
-            // Test existing backend
-            const backend = await prisma.notificationBackend.findUnique({
-              where: { id: parsed.backendId },
-            });
-
-            if (!backend) {
-              return NextResponse.json(
-                { error: 'NotFound', message: 'Backend not found' },
-                { status: 404 }
-              );
-            }
-
-            type = backend.type as NotificationBackendType;
-            encryptedConfig = backend.config; // Already encrypted in DB
-          } else {
-            // Test new config
-            type = parsed.type;
-            encryptedConfig = notificationService.encryptConfig(type, parsed.config);
-          }
+          return NextResponse.json(
+            { error: 'ValidationError', message: 'Must provide either backendId or type+config' },
+            { status: 400 }
+          );
         }
 
         // Create test payload
@@ -111,13 +68,14 @@ export async function POST(request: NextRequest) {
           title: "The Hitchhiker's Guide to the Galaxy",
           author: 'Douglas Adams',
           userName: 'Test User',
+          requestType: 'audiobook',
           timestamp: new Date(),
         };
 
         // Send test notification synchronously (not via job queue)
         try {
           // Call sendToBackend directly
-          await (notificationService as any).sendToBackend(type, encryptedConfig, testPayload);
+          await notificationService.sendToBackend(type, encryptedConfig, testPayload);
 
           logger.info(`Test notification sent successfully for ${type}`, {
             adminId: req.user?.sub,

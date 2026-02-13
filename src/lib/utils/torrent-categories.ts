@@ -80,3 +80,26 @@ export function isParentCategory(categoryId: number): boolean {
   const category = TORRENT_CATEGORIES.find((cat) => cat.id === categoryId);
   return !!category?.children && category.children.length > 0;
 }
+
+/**
+ * Get all standard category IDs (parents and children) from the predefined tree
+ */
+export function getAllStandardCategoryIds(): Set<number> {
+  const ids = new Set<number>();
+  for (const parent of TORRENT_CATEGORIES) {
+    ids.add(parent.id);
+    if (parent.children) {
+      for (const child of parent.children) {
+        ids.add(child.id);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Check if a category ID exists in the predefined category tree
+ */
+export function isStandardCategory(categoryId: number): boolean {
+  return getAllStandardCategoryIds().has(categoryId);
+}

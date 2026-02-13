@@ -5,10 +5,20 @@
 
 import axios, { AxiosInstance } from 'axios';
 import https from 'https';
+import path from 'path';
 import * as parseTorrentModule from 'parse-torrent';
 import FormData from 'form-data';
 import { RMABLogger } from '../utils/logger';
 import { PathMapper, PathMappingConfig } from '../utils/path-mapper';
+import {
+  IDownloadClient,
+  DownloadClientType,
+  ProtocolType,
+  DownloadInfo,
+  DownloadStatus,
+  AddDownloadOptions,
+  ConnectionTestResult,
+} from '../interfaces/download-client.interface';
 
 // Handle both ESM and CommonJS imports
 const parseTorrent = (parseTorrentModule as any).default || parseTorrentModule;
@@ -59,7 +69,19 @@ export type TorrentState =
   | 'checkingUP'
   | 'error'
   | 'missingFiles'
-  | 'allocating';
+  | 'allocating'
+  // Forced states (user clicked "Force Resume" in qBittorrent UI)
+  | 'forcedDL'
+  | 'forcedUP'
+  // Metadata fetching states
+  | 'metaDL'
+  | 'forcedMetaDL'
+  // qBittorrent v5.0+ renamed paused → stopped
+  | 'stoppedDL'
+  | 'stoppedUP'
+  // Other states
+  | 'checkingResumeData'
+  | 'moving';
 
 export interface TorrentFile {
   name: string;
@@ -78,7 +100,10 @@ export interface DownloadProgress {
   state: string;
 }
 
-export class QBittorrentService {
+export class QBittorrentService implements IDownloadClient {
+  readonly clientType: DownloadClientType = 'qbittorrent';
+  readonly protocol: ProtocolType = 'torrent';
+
   private client: AxiosInstance;
   private baseUrl: string;
   private username: string;
@@ -209,7 +234,7 @@ export class QBittorrentService {
   /**
    * Add torrent (magnet link or file URL) - Enterprise Implementation
    */
-  async addTorrent(url: string, options?: AddTorrentOptions): Promise<string> {
+  async addTorrent(url: string, options?: AddTorrentOptions, retried = false): Promise<string> {
     // Validate URL parameter
     if (!url || typeof url !== 'string' || url.trim() === '') {
       logger.error('Invalid download URL', { url });
@@ -236,11 +261,11 @@ export class QBittorrentService {
         return await this.addTorrentFile(url, category, options);
       }
     } catch (error) {
-      // Try re-authenticating if we get a 403
-      if (axios.isAxiosError(error) && error.response?.status === 403) {
+      // Try re-authenticating once if we get a 403
+      if (!retried && axios.isAxiosError(error) && error.response?.status === 403) {
         logger.info('[QBittorrent] Session expired, re-authenticating...');
         await this.login();
-        return this.addTorrent(url, options); // Retry once
+        return this.addTorrent(url, options, true);
       }
 
       logger.error('Failed to add torrent', { error: error instanceof Error ? error.message : String(error) });
@@ -279,12 +304,17 @@ export class QBittorrentService {
     const remoteSavePath = PathMapper.reverseTransform(localSavePath, this.pathMappingConfig);
 
     // Upload via 'urls' parameter
+    // Set ratioLimit and seedingTimeLimit to -1 (unlimited) so qBittorrent's
+    // global seeding rules don't remove the torrent prematurely.
+    // RMAB manages torrent lifecycle via the cleanup-seeded-torrents processor.
     const form = new URLSearchParams({
       urls: magnetUrl,
       savepath: remoteSavePath,
       category,
       paused: options?.paused ? 'true' : 'false',
       sequentialDownload: (options?.sequentialDownload !== false).toString(),
+      ratioLimit: '-1',
+      seedingTimeLimit: '-1',
     });
 
     if (options?.tags) {
@@ -432,6 +462,9 @@ export class QBittorrentService {
     formData.append('category', category);
     formData.append('paused', options?.paused ? 'true' : 'false');
     formData.append('sequentialDownload', (options?.sequentialDownload !== false).toString());
+    // Override qBittorrent's global seeding rules — RMAB manages torrent lifecycle
+    formData.append('ratioLimit', '-1');
+    formData.append('seedingTimeLimit', '-1');
 
     if (options?.tags) {
       formData.append('tags', options.tags.join(','));
@@ -697,6 +730,26 @@ export class QBittorrentService {
   }
 
   /**
+   * Get all configured categories from qBittorrent
+   */
+  async getCategories(): Promise<string[]> {
+    if (!this.cookie) {
+      await this.login();
+    }
+
+    try {
+      const response = await this.client.get('/torrents/categories', {
+        headers: { Cookie: this.cookie },
+      });
+
+      return Object.keys(response.data || {});
+    } catch (error) {
+      logger.error('Failed to get categories', { error: error instanceof Error ? error.message : String(error) });
+      return [];
+    }
+  }
+
+  /**
    * Set category for torrent
    */
   async setCategory(hash: string, category: string): Promise<void> {
@@ -729,13 +782,28 @@ export class QBittorrentService {
   /**
    * Test connection to qBittorrent
    */
-  async testConnection(): Promise<boolean> {
+  async testConnection(): Promise<ConnectionTestResult> {
     try {
       await this.login();
-      return true;
+
+      // Fetch version after successful login
+      let version: string | undefined;
+      try {
+        const versionResponse = await this.client.get('/app/version', {
+          headers: { Cookie: this.cookie },
+        });
+        const raw = versionResponse.data || '';
+        version = typeof raw === 'string' ? raw.replace(/^v/i, '') : undefined;
+      } catch {
+        // Version fetch is non-critical - connection is still valid
+        logger.debug('Could not fetch qBittorrent version');
+      }
+
+      return { success: true, version, message: `Connected to qBittorrent${version ? ` ${version}` : ''}` };
     } catch (error) {
-      logger.error('Connection test failed', { error: error instanceof Error ? error.message : String(error) });
-      return false;
+      const message = error instanceof Error ? error.message : 'Connection failed';
+      logger.error('Connection test failed', { error: message });
+      return { success: false, message };
     }
   }
 
@@ -835,7 +903,8 @@ export class QBittorrentService {
         version: versionResponse.data,
       });
 
-      return versionResponse.data || 'Connected';
+      const rawVersion = versionResponse.data || '';
+      return typeof rawVersion === 'string' ? rawVersion.replace(/^v/i, '') || 'Connected' : 'Connected';
     } catch (error) {
       if (axios.isAxiosError(error)) {
         logger.error('[QBittorrent] Test connection failed with axios error', {
@@ -931,6 +1000,146 @@ export class QBittorrentService {
     }
   }
 
+  // =========================================================================
+  // IDownloadClient Implementation
+  // =========================================================================
+
+  /**
+   * Add a download via the unified interface.
+   * Delegates to addTorrent with sensible defaults for audiobook downloads.
+   */
+  async addDownload(url: string, options?: AddDownloadOptions): Promise<string> {
+    return this.addTorrent(url, {
+      category: options?.category,
+      paused: options?.paused,
+      tags: ['audiobook'],
+      sequentialDownload: true,
+    });
+  }
+
+  /**
+   * Get download status via the unified interface.
+   * Includes retry logic to handle the race condition where a torrent
+   * isn't immediately available after being added.
+   */
+  async getDownload(id: string): Promise<DownloadInfo | null> {
+    const maxRetries = 3;
+    const initialDelayMs = 500;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const torrent = await this.getTorrent(id);
+        return this.mapTorrentToDownloadInfo(torrent);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        const isNotFound = message.includes('not found');
+
+        // If not a "not found" error, don't retry
+        if (!isNotFound) {
+          throw error;
+        }
+
+        // If this is the last attempt, return null
+        if (attempt === maxRetries) {
+          return null;
+        }
+
+        // Exponential backoff: 500ms, 1000ms, 2000ms
+        const delayMs = initialDelayMs * Math.pow(2, attempt);
+        logger.warn(`Torrent ${id} not found, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return null;
+  }
+
+  /** Pause a download via the unified interface */
+  async pauseDownload(id: string): Promise<void> {
+    return this.pauseTorrent(id);
+  }
+
+  /** Resume a download via the unified interface */
+  async resumeDownload(id: string): Promise<void> {
+    return this.resumeTorrent(id);
+  }
+
+  /** Delete a download via the unified interface */
+  async deleteDownload(id: string, deleteFiles: boolean = false): Promise<void> {
+    return this.deleteTorrent(id, deleteFiles);
+  }
+
+  /**
+   * Post-download cleanup via the unified interface.
+   * No-op for qBittorrent — torrents continue seeding until the
+   * cleanup-seeded-torrents job removes them after meeting seeding requirements.
+   */
+  async postProcess(_id: string): Promise<void> {
+    // No-op: torrents are managed by the seeding cleanup scheduler
+  }
+
+  /**
+   * Map a TorrentInfo object to the unified DownloadInfo format.
+   */
+  private mapTorrentToDownloadInfo(torrent: TorrentInfo): DownloadInfo {
+    return {
+      id: torrent.hash,
+      name: torrent.name,
+      size: torrent.size,
+      bytesDownloaded: torrent.downloaded,
+      progress: torrent.progress,
+      status: this.mapStateToDownloadStatus(torrent.state),
+      downloadSpeed: torrent.dlspeed,
+      eta: torrent.eta,
+      category: torrent.category,
+      downloadPath: torrent.content_path || path.join(torrent.save_path, torrent.name),
+      completedAt: torrent.completion_on > 0 ? new Date(torrent.completion_on * 1000) : undefined,
+      seedingTime: torrent.seeding_time,
+      ratio: torrent.ratio,
+    };
+  }
+
+  /**
+   * Map qBittorrent torrent state to unified DownloadStatus.
+   */
+  private mapStateToDownloadStatus(state: TorrentState): DownloadStatus {
+    const stateMap: Record<TorrentState, DownloadStatus> = {
+      downloading: 'downloading',
+      uploading: 'seeding',
+      stalledDL: 'downloading',
+      stalledUP: 'seeding',
+      pausedDL: 'paused',
+      // pausedUP = download finished, paused on upload side (e.g. RDT-Client, ratio met)
+      pausedUP: 'seeding',
+      queuedDL: 'queued',
+      queuedUP: 'seeding',
+      checkingDL: 'checking',
+      checkingUP: 'checking',
+      error: 'failed',
+      missingFiles: 'failed',
+      allocating: 'downloading',
+      // Forced states (user clicked "Force Resume" in qBittorrent UI)
+      forcedDL: 'downloading',
+      forcedUP: 'seeding',
+      // Metadata fetching states
+      metaDL: 'downloading',
+      forcedMetaDL: 'downloading',
+      // qBittorrent v5.0+ renamed paused → stopped
+      stoppedDL: 'paused',
+      // stoppedUP = download finished, stopped on upload side (qBittorrent v5.0+)
+      stoppedUP: 'seeding',
+      // Other states
+      checkingResumeData: 'checking',
+      moving: 'downloading',
+    };
+
+    return stateMap[state] || 'downloading';
+  }
+
+  // =========================================================================
+  // Legacy Methods (used internally and by direct callers)
+  // =========================================================================
+
   /**
    * Get download progress details
    */
@@ -955,14 +1164,28 @@ export class QBittorrentService {
       stalledDL: 'downloading',
       stalledUP: 'completed',
       pausedDL: 'paused',
-      pausedUP: 'paused',
+      // pausedUP = download finished, paused on upload side (e.g. RDT-Client, ratio met)
+      pausedUP: 'completed',
       queuedDL: 'queued',
       queuedUP: 'completed',
       checkingDL: 'checking',
-      checkingUP: 'checking',
+      checkingUP: 'completed',
       error: 'failed',
       missingFiles: 'failed',
       allocating: 'downloading',
+      // Forced states (user clicked "Force Resume" in qBittorrent UI)
+      forcedDL: 'downloading',
+      forcedUP: 'completed',
+      // Metadata fetching states
+      metaDL: 'downloading',
+      forcedMetaDL: 'downloading',
+      // qBittorrent v5.0+ renamed paused → stopped
+      stoppedDL: 'paused',
+      // stoppedUP = download finished, stopped on upload side (qBittorrent v5.0+)
+      stoppedUP: 'completed',
+      // Other states
+      checkingResumeData: 'checking',
+      moving: 'downloading',
     };
 
     return stateMap[state] || 'unknown';
@@ -1032,8 +1255,11 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
         throw new Error('qBittorrent is not fully configured. Please check your configuration in admin settings.');
       }
 
-      // Get download_dir from main config (not part of client config)
-      const downloadDir = await configService.get('download_dir') || '/downloads';
+      // Get download_dir from main config, applying customPath if configured
+      const baseDir = await configService.get('download_dir') || '/downloads';
+      const downloadDir = clientConfig.customPath
+        ? require('path').join(baseDir, clientConfig.customPath)
+        : baseDir;
 
       // Path mapping configuration
       const pathMappingConfig: PathMappingConfig = {
@@ -1055,10 +1281,10 @@ export async function getQBittorrentService(): Promise<QBittorrentService> {
 
       // Test connection
       logger.info('[QBittorrent] Testing connection...');
-      const isConnected = await qbittorrentService.testConnection();
-      if (!isConnected) {
-        logger.warn('[QBittorrent] Connection test failed');
-        throw new Error('qBittorrent connection test failed. Please check your configuration in admin settings.');
+      const connectionResult = await qbittorrentService.testConnection();
+      if (!connectionResult.success) {
+        logger.warn('[QBittorrent] Connection test failed', { message: connectionResult.message });
+        throw new Error(connectionResult.message || 'qBittorrent connection test failed. Please check your configuration in admin settings.');
       } else {
         logger.info('[QBittorrent] Connection test successful');
         configLoaded = true; // Mark as successfully loaded

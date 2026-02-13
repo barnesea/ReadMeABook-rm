@@ -4,6 +4,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NotificationEvent } from '@/lib/constants/notification-events';
 
 describe('JobQueueService - Notification Integration', () => {
   beforeEach(() => {
@@ -50,7 +51,7 @@ describe('JobQueueService - Notification Integration', () => {
     });
 
     it('handles all event types', () => {
-      const events: Array<'request_pending_approval' | 'request_approved' | 'request_available' | 'request_error'> = [
+      const events: NotificationEvent[] = [
         'request_pending_approval',
         'request_approved',
         'request_available',

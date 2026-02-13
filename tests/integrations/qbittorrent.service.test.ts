@@ -102,10 +102,230 @@ describe('QBittorrentService', () => {
       size: 1000,
       dlspeed: 0,
       eta: 0,
-      state: 'allocating' as any,
+      state: 'allocating',
     } as any);
 
     expect(progress.state).toBe('downloading');
+  });
+
+  describe('mapState - forced states (Force Resume in qBittorrent UI)', () => {
+    it('maps forcedDL to downloading', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 0.5, downloaded: 500, size: 1000, dlspeed: 100, eta: 50, state: 'forcedDL',
+      } as any);
+      expect(progress.state).toBe('downloading');
+    });
+
+    it('maps forcedUP to completed', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 1.0, downloaded: 1000, size: 1000, dlspeed: 0, eta: 0, state: 'forcedUP',
+      } as any);
+      expect(progress.state).toBe('completed');
+    });
+  });
+
+  describe('mapState - metadata fetching states', () => {
+    it('maps metaDL to downloading', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 0, downloaded: 0, size: 0, dlspeed: 0, eta: 0, state: 'metaDL',
+      } as any);
+      expect(progress.state).toBe('downloading');
+    });
+
+    it('maps forcedMetaDL to downloading', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 0, downloaded: 0, size: 0, dlspeed: 0, eta: 0, state: 'forcedMetaDL',
+      } as any);
+      expect(progress.state).toBe('downloading');
+    });
+  });
+
+  describe('mapState - qBittorrent v5.x stopped states', () => {
+    it('maps stoppedDL to paused', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 0.3, downloaded: 300, size: 1000, dlspeed: 0, eta: 0, state: 'stoppedDL',
+      } as any);
+      expect(progress.state).toBe('paused');
+    });
+
+    it('maps stoppedUP to completed (download finished, stopped on upload side)', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 1.0, downloaded: 1000, size: 1000, dlspeed: 0, eta: 0, state: 'stoppedUP',
+      } as any);
+      expect(progress.state).toBe('completed');
+    });
+  });
+
+  describe('mapState - other states', () => {
+    it('maps checkingResumeData to checking', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 0, downloaded: 0, size: 1000, dlspeed: 0, eta: 0, state: 'checkingResumeData',
+      } as any);
+      expect(progress.state).toBe('checking');
+    });
+
+    it('maps moving to downloading', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 1.0, downloaded: 1000, size: 1000, dlspeed: 0, eta: 0, state: 'moving',
+      } as any);
+      expect(progress.state).toBe('downloading');
+    });
+  });
+
+  describe('mapState - pausedUP/stoppedUP as completion states (RDT-Client compatibility)', () => {
+    it('maps pausedUP to completed (download finished, paused on upload side)', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 0.5, downloaded: 0, size: 0, dlspeed: 0, eta: 0, state: 'pausedUP',
+      } as any);
+      expect(progress.state).toBe('completed');
+    });
+
+    it('maps pausedDL to paused (download not finished)', () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      const progress = service.getDownloadProgress({
+        progress: 0.3, downloaded: 300, size: 1000, dlspeed: 0, eta: 0, state: 'pausedDL',
+      } as any);
+      expect(progress.state).toBe('paused');
+    });
+  });
+
+  describe('mapStateToDownloadStatus - forced and new states via getDownload', () => {
+    it('maps forcedUP to seeding status (triggers completion in monitor)', async () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      (service as any).cookie = 'SID=forced';
+      clientMock.get.mockResolvedValueOnce({
+        data: [{
+          hash: 'abc123', name: 'Audiobook', size: 1000, progress: 1.0,
+          dlspeed: 0, upspeed: 5000, downloaded: 1000, uploaded: 500,
+          eta: 0, state: 'forcedUP', category: 'readmeabook', tags: '',
+          save_path: '/downloads', content_path: '/downloads/Audiobook',
+          completion_on: 1700000000, added_on: 1699000000,
+        }],
+      });
+
+      const info = await service.getDownload('abc123');
+
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe('seeding');
+    });
+
+    it('maps forcedDL to downloading status', async () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      (service as any).cookie = 'SID=forced';
+      clientMock.get.mockResolvedValueOnce({
+        data: [{
+          hash: 'abc123', name: 'Audiobook', size: 1000, progress: 0.5,
+          dlspeed: 1000, upspeed: 0, downloaded: 500, uploaded: 0,
+          eta: 500, state: 'forcedDL', category: 'readmeabook', tags: '',
+          save_path: '/downloads', completion_on: 0, added_on: 1699000000,
+        }],
+      });
+
+      const info = await service.getDownload('abc123');
+
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe('downloading');
+    });
+
+    it('maps stoppedUP to seeding status (qBittorrent v5.x, triggers completion)', async () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      (service as any).cookie = 'SID=stopped';
+      clientMock.get.mockResolvedValueOnce({
+        data: [{
+          hash: 'abc123', name: 'Audiobook', size: 1000, progress: 1.0,
+          dlspeed: 0, upspeed: 0, downloaded: 1000, uploaded: 200,
+          eta: 0, state: 'stoppedUP', category: 'readmeabook', tags: '',
+          save_path: '/downloads', completion_on: 1700000000, added_on: 1699000000,
+        }],
+      });
+
+      const info = await service.getDownload('abc123');
+
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe('seeding');
+    });
+
+    it('maps pausedUP to seeding status (RDT-Client: download finished, paused on upload side)', async () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      (service as any).cookie = 'SID=pausedup';
+      clientMock.get.mockResolvedValueOnce({
+        data: [{
+          hash: 'd5d767f07e5d9027f7f9d9b50b877386dc92b177', name: 'Audiobook', size: 0, progress: 0.5,
+          dlspeed: 0, upspeed: 0, downloaded: 0, uploaded: 0,
+          eta: 0, state: 'pausedUP', category: 'readmeabook', tags: '',
+          save_path: '/data/torrents/readmeabook', content_path: '/data/torrents/readmeabook/Audiobook',
+          completion_on: 1769135244, added_on: 1769135108,
+        }],
+      });
+
+      const info = await service.getDownload('d5d767f07e5d9027f7f9d9b50b877386dc92b177');
+
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe('seeding');
+    });
+
+    it('maps stoppedDL to paused status (qBittorrent v5.x)', async () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      (service as any).cookie = 'SID=stopped';
+      clientMock.get.mockResolvedValueOnce({
+        data: [{
+          hash: 'abc123', name: 'Audiobook', size: 1000, progress: 0.3,
+          dlspeed: 0, upspeed: 0, downloaded: 300, uploaded: 0,
+          eta: 0, state: 'stoppedDL', category: 'readmeabook', tags: '',
+          save_path: '/downloads', completion_on: 0, added_on: 1699000000,
+        }],
+      });
+
+      const info = await service.getDownload('abc123');
+
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe('paused');
+    });
+
+    it('maps metaDL to downloading status', async () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      (service as any).cookie = 'SID=meta';
+      clientMock.get.mockResolvedValueOnce({
+        data: [{
+          hash: 'abc123', name: 'Audiobook', size: 0, progress: 0,
+          dlspeed: 0, upspeed: 0, downloaded: 0, uploaded: 0,
+          eta: 0, state: 'metaDL', category: 'readmeabook', tags: '',
+          save_path: '/downloads', completion_on: 0, added_on: 1699000000,
+        }],
+      });
+
+      const info = await service.getDownload('abc123');
+
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe('downloading');
+    });
+
+    it('maps checkingResumeData to checking status', async () => {
+      const service = new QBittorrentService('http://qb', 'user', 'pass');
+      (service as any).cookie = 'SID=resume';
+      clientMock.get.mockResolvedValueOnce({
+        data: [{
+          hash: 'abc123', name: 'Audiobook', size: 1000, progress: 0,
+          dlspeed: 0, upspeed: 0, downloaded: 0, uploaded: 0,
+          eta: 0, state: 'checkingResumeData', category: 'readmeabook', tags: '',
+          save_path: '/downloads', completion_on: 0, added_on: 1699000000,
+        }],
+      });
+
+      const info = await service.getDownload('abc123');
+
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe('checking');
+    });
   });
 
   it('authenticates and stores a session cookie', async () => {
@@ -619,7 +839,7 @@ describe('QBittorrentService', () => {
 
     const version = await QBittorrentService.testConnectionWithCredentials('http://qb', 'user', 'pass');
 
-    expect(version).toBe('v4.6.0');
+    expect(version).toBe('4.6.0');
   });
 
   it('throws when test connection receives no cookies', async () => {
@@ -709,7 +929,7 @@ describe('QBittorrentService', () => {
     });
     configServiceMock.get.mockResolvedValue('/downloads');
 
-    const testConnectionSpy = vi.spyOn(QBittorrentService.prototype, 'testConnection').mockResolvedValue(true);
+    const testConnectionSpy = vi.spyOn(QBittorrentService.prototype, 'testConnection').mockResolvedValue({ success: true, message: 'Connected' });
 
     const first = await getQBittorrentService();
     const second = await getQBittorrentService();
@@ -736,7 +956,7 @@ describe('QBittorrentService', () => {
     });
     configServiceMock.get.mockResolvedValue('/downloads');
 
-    const testConnectionSpy = vi.spyOn(QBittorrentService.prototype, 'testConnection').mockResolvedValue(false);
+    const testConnectionSpy = vi.spyOn(QBittorrentService.prototype, 'testConnection').mockResolvedValue({ success: false, message: 'qBittorrent connection test failed. Please check your configuration in admin settings.' });
 
     await expect(getQBittorrentService()).rejects.toThrow('qBittorrent connection test failed');
 
@@ -747,9 +967,9 @@ describe('QBittorrentService', () => {
     const service = new QBittorrentService('http://qb', 'user', 'pass');
     const loginSpy = vi.spyOn(service, 'login').mockRejectedValue(new Error('bad auth'));
 
-    const ok = await service.testConnection();
+    const result = await service.testConnection();
 
-    expect(ok).toBe(false);
+    expect(result.success).toBe(false);
     expect(loginSpy).toHaveBeenCalled();
   });
 
@@ -757,9 +977,9 @@ describe('QBittorrentService', () => {
     const service = new QBittorrentService('http://qb', 'user', 'pass');
     const loginSpy = vi.spyOn(service, 'login').mockResolvedValue();
 
-    const ok = await service.testConnection();
+    const result = await service.testConnection();
 
-    expect(ok).toBe(true);
+    expect(result.success).toBe(true);
     expect(loginSpy).toHaveBeenCalled();
   });
 });

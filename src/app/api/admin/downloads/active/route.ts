@@ -6,10 +6,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
-import { getQBittorrentService } from '@/lib/integrations/qbittorrent.service';
-import { getSABnzbdService } from '@/lib/integrations/sabnzbd.service';
 import { getConfigService } from '@/lib/services/config.service';
+import { getDownloadClientManager } from '@/lib/services/download-client-manager.service';
 import { RMABLogger } from '@/lib/utils/logger';
+import { CLIENT_PROTOCOL_MAP, DownloadClientType } from '@/lib/interfaces/download-client.interface';
 
 const logger = RMABLogger.create('API.Admin.Downloads');
 
@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
             torrentName: true,
             torrentHash: true,
             nzbId: true,
+            downloadClientId: true,
             downloadClient: true, // qbittorrent, sabnzbd, or direct
             torrentSizeBytes: true,
             startedAt: true,
@@ -68,9 +69,9 @@ export async function GET(request: NextRequest) {
       take: 20,
     });
 
-    // Get configured download client type
+    // Get download client manager
     const configService = getConfigService();
-    const clientType = (await configService.get('download_client_type')) || 'qbittorrent';
+    const manager = getDownloadClientManager(configService);
 
     // Format response with speed and ETA from download client
     const formatted = await Promise.all(
@@ -98,24 +99,19 @@ export async function GET(request: NextRequest) {
                 eta = speed > 0 ? Math.round(remainingBytes / speed) : null;
               }
             }
-          } else if (downloadClient === 'qbittorrent' || (!downloadClient && clientType === 'qbittorrent')) {
-            // Get torrent hash from download history
-            const torrentHash = downloadHistory?.torrentHash;
-            if (torrentHash) {
-              const qbService = await getQBittorrentService();
-              const torrentInfo = await qbService.getTorrent(torrentHash);
-              speed = torrentInfo.dlspeed;
-              eta = torrentInfo.eta > 0 ? torrentInfo.eta : null;
-            }
-          } else if (downloadClient === 'sabnzbd' || (!downloadClient && clientType === 'sabnzbd')) {
-            // Get NZB ID from download history
-            const nzbId = downloadHistory?.nzbId;
-            if (nzbId) {
-              const sabnzbdService = await getSABnzbdService();
-              const nzbInfo = await sabnzbdService.getNZB(nzbId);
-              if (nzbInfo) {
-                speed = nzbInfo.downloadSpeed;
-                eta = nzbInfo.timeLeft > 0 ? nzbInfo.timeLeft : null;
+          } else {
+            // Use unified interface for all download clients (qBittorrent, SABnzbd, etc.)
+            const clientId = downloadHistory?.downloadClientId || downloadHistory?.torrentHash || downloadHistory?.nzbId;
+            if (clientId && downloadClient) {
+              const protocol = CLIENT_PROTOCOL_MAP[downloadClient as DownloadClientType] || 'torrent';
+              const client = await manager.getClientServiceForProtocol(protocol as 'torrent' | 'usenet');
+
+              if (client) {
+                const info = await client.getDownload(clientId);
+                if (info) {
+                  speed = info.downloadSpeed;
+                  eta = info.eta > 0 ? info.eta : null;
+                }
               }
             }
           }

@@ -4,15 +4,18 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { QBittorrentService } from '@/lib/integrations/qbittorrent.service';
-import { SABnzbdService } from '@/lib/integrations/sabnzbd.service';
+import { getConfigService } from '@/lib/services/config.service';
+import { getDownloadClientManager, DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { SUPPORTED_CLIENT_TYPES } from '@/lib/interfaces/download-client.interface';
+import { requireSetupIncomplete } from '@/lib/middleware/auth';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Setup.TestDownloadClient');
 
 export async function POST(request: NextRequest) {
+  return requireSetupIncomplete(request, async (req) => {
   try {
-    const { type, url, username, password, disableSSLVerify } = await request.json();
+    const { type, name, url, username, password, disableSSLVerify } = await req.json();
 
     if (!type || !url) {
       return NextResponse.json(
@@ -21,59 +24,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (type !== 'qbittorrent' && type !== 'sabnzbd') {
+    if (!SUPPORTED_CLIENT_TYPES.includes(type)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid client type. Must be qbittorrent or sabnzbd' },
+        { success: false, error: `Invalid client type. Must be one of: ${SUPPORTED_CLIENT_TYPES.join(', ')}` },
         { status: 400 }
       );
     }
 
-    // Validate required fields per client type
-    // qBittorrent credentials are optional (supports IP whitelist auth)
-    if (type === 'qbittorrent') {
-      // Test qBittorrent connection (empty credentials work with IP whitelist)
-      const version = await QBittorrentService.testConnectionWithCredentials(
-        url,
-        username || '',
-        password || '',
-        disableSSLVerify || false
-      );
+    // Build a temporary config for testing
+    const testConfig: DownloadClientConfig = {
+      id: 'setup-test',
+      type,
+      name: name || type,
+      enabled: true,
+      url,
+      username: username || '',
+      password: password || '',
+      disableSSLVerify: disableSSLVerify || false,
+      remotePathMappingEnabled: false,
+    };
 
+    const configService = getConfigService();
+    const manager = getDownloadClientManager(configService);
+    const result = await manager.testConnection(testConfig);
+
+    if (result.success) {
       return NextResponse.json({
         success: true,
-        version,
-      });
-    } else if (type === 'sabnzbd') {
-      if (!password) {
-        return NextResponse.json(
-          { success: false, error: 'API key (password) is required for SABnzbd' },
-          { status: 400 }
-        );
-      }
-
-      // Test SABnzbd connection
-      const sabnzbd = new SABnzbdService(url, password, 'readmeabook', disableSSLVerify || false);
-      const result = await sabnzbd.testConnection();
-
-      if (!result.success) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: result.error || 'Failed to connect to SABnzbd',
-          },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        version: result.version,
+        message: result.message,
       });
     }
 
-    // Should never reach here
     return NextResponse.json(
-      { success: false, error: 'Invalid client type' },
+      { success: false, error: result.message },
       { status: 400 }
     );
   } catch (error) {
@@ -86,4 +69,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

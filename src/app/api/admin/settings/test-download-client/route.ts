@@ -1,14 +1,16 @@
 /**
- * Component: Admin Settings Test Download Client API
+ * Component: Admin Settings Test Download Client API (DEPRECATED)
  * Documentation: documentation/settings-pages.md
+ *
+ * DEPRECATED: Use /api/admin/settings/download-clients/test instead.
+ * Maintained for backward compatibility.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { getConfigService } from '@/lib/services/config.service';
-import { getDownloadClientManager } from '@/lib/services/download-client-manager.service';
-import { QBittorrentService } from '@/lib/integrations/qbittorrent.service';
-import { SABnzbdService } from '@/lib/integrations/sabnzbd.service';
+import { getDownloadClientManager, DownloadClientConfig } from '@/lib/services/download-client-manager.service';
+import { SUPPORTED_CLIENT_TYPES } from '@/lib/interfaces/download-client.interface';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.TestDownloadClient');
@@ -19,6 +21,7 @@ export async function POST(request: NextRequest) {
       try {
         const {
           type,
+          name: clientName,
           url,
           username,
           password,
@@ -37,9 +40,9 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        if (type !== 'qbittorrent' && type !== 'sabnzbd') {
+        if (!SUPPORTED_CLIENT_TYPES.includes(type)) {
           return NextResponse.json(
-            { success: false, error: 'Invalid client type. Must be qbittorrent or sabnzbd' },
+            { success: false, error: `Invalid client type. Must be one of: ${SUPPORTED_CLIENT_TYPES.join(', ')}` },
             { status: 400 }
           );
         }
@@ -64,53 +67,28 @@ export async function POST(request: NextRequest) {
           actualPassword = matchingClient.password;
         }
 
-        // Validate required fields per client type and test connection
-        let version: string | undefined;
+        // Build a temporary config for testing
+        const testConfig: DownloadClientConfig = {
+          id: 'legacy-test',
+          type,
+          name: clientName || type,
+          enabled: true,
+          url,
+          username: username || '',
+          password: actualPassword || '',
+          disableSSLVerify: disableSSLVerify || false,
+          remotePathMappingEnabled: remotePathMappingEnabled || false,
+          remotePath: remotePath || undefined,
+          localPath: localPath || undefined,
+          category: 'readmeabook',
+        };
 
-        if (type === 'qbittorrent') {
-          logger.debug('Testing qBittorrent connection');
-          if (!username || !actualPassword) {
-            return NextResponse.json(
-              { success: false, error: 'Username and password are required for qBittorrent' },
-              { status: 400 }
-            );
-          }
-
-          // Test qBittorrent connection
-          version = await QBittorrentService.testConnectionWithCredentials(
-            url,
-            username,
-            actualPassword,
-            disableSSLVerify || false
-          );
-        } else if (type === 'sabnzbd') {
-          logger.debug('Testing SABnzbd connection');
-          if (!actualPassword) {
-            return NextResponse.json(
-              { success: false, error: 'API key (password) is required for SABnzbd' },
-              { status: 400 }
-            );
-          }
-
-          // Test SABnzbd connection
-          const sabnzbd = new SABnzbdService(url, actualPassword, 'readmeabook', disableSSLVerify || false);
-          const result = await sabnzbd.testConnection();
-
-          if (!result.success) {
-            return NextResponse.json(
-              {
-                success: false,
-                error: result.error || 'Failed to connect to SABnzbd',
-              },
-              { status: 500 }
-            );
-          }
-
-          version = result.version;
-        }
+        const configService = getConfigService();
+        const manager = getDownloadClientManager(configService);
+        const result = await manager.testConnection(testConfig);
 
         // If path mapping enabled, validate local path exists
-        if (remotePathMappingEnabled) {
+        if (result.success && remotePathMappingEnabled) {
           if (!remotePath || !localPath) {
             return NextResponse.json(
               {
@@ -136,10 +114,14 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        return NextResponse.json({
-          success: true,
-          version,
-        });
+        if (result.success) {
+          return NextResponse.json({ success: true, message: result.message });
+        }
+
+        return NextResponse.json(
+          { success: false, error: result.message },
+          { status: 400 }
+        );
       } catch (error) {
         logger.error('Download client test failed', { error: error instanceof Error ? error.message : String(error) });
         return NextResponse.json(

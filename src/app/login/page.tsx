@@ -38,6 +38,7 @@ function LoginContent() {
     hasLocalUsers: boolean;
     oidcProviderName: string | null;
     localLoginDisabled: boolean;
+    allowWeakPassword: boolean;
     automationEnabled: boolean;
   } | null>(null);
   const [showRegisterForm, setShowRegisterForm] = useState(false);
@@ -78,6 +79,7 @@ function LoginContent() {
           hasLocalUsers: false,
           oidcProviderName: null,
           localLoginDisabled: false,
+          allowWeakPassword: false,
           automationEnabled: false,
         });
       }
@@ -345,7 +347,7 @@ function LoginContent() {
       return;
     }
 
-    if (registerPassword.length < 8) {
+    if (!authProviders?.allowWeakPassword && registerPassword.length < 8) {
       setError('Password must be at least 8 characters');
       setIsLoggingIn(false);
       return;
@@ -639,10 +641,12 @@ function LoginContent() {
                             className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                             placeholder="••••••••"
                             required
-                            minLength={8}
+                            minLength={authProviders?.allowWeakPassword ? 1 : 8}
                             autoComplete="new-password"
                           />
-                          <p className="text-xs text-gray-500 mt-1">At least 8 characters</p>
+                          {!authProviders?.allowWeakPassword && (
+                            <p className="text-xs text-gray-500 mt-1">At least 8 characters</p>
+                          )}
                         </div>
                         <div>
                           <label htmlFor="register-confirm-password" className="block text-sm font-medium text-gray-300 mb-2">
@@ -656,7 +660,7 @@ function LoginContent() {
                             className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                             placeholder="••••••••"
                             required
-                            minLength={8}
+                            minLength={authProviders?.allowWeakPassword ? 1 : 8}
                             autoComplete="new-password"
                           />
                         </div>

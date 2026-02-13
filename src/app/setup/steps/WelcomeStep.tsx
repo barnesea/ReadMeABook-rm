@@ -17,13 +17,13 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
       <div className="text-center space-y-4">
         <div className="flex justify-center">
           <div
-            className="w-20 h-20 rounded-full flex items-center justify-center p-4"
+            className="w-20 h-20 rounded-full flex items-center justify-center p-2 overflow-hidden"
             style={{ backgroundColor: '#f7f4f3' }}
           >
             <img
-              src="/rmab_32x32.png"
+              src="/RMAB_1024x1024_ICON.png"
               alt="ReadMeABook Logo"
-              className="w-full h-full object-contain"
+              className="w-full h-full object-contain relative top-[3px]"
             />
           </div>
         </div>
@@ -57,9 +57,9 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               />
             </svg>
             <div>
-              <strong className="text-gray-900 dark:text-gray-100">Plex Media Server</strong>
+              <strong className="text-gray-900 dark:text-gray-100">Plex or Audiobookshelf</strong>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Your Plex server URL and authentication token
+                Your media server URL and authentication credentials
               </p>
             </div>
           </li>
@@ -79,7 +79,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
             <div>
               <strong className="text-gray-900 dark:text-gray-100">Prowlarr</strong>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Indexer aggregator for searching torrents (URL and API key)
+                Indexer aggregator for searching torrents and usenet (URL and API key)
               </p>
             </div>
           </li>
@@ -98,10 +98,10 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
             </svg>
             <div>
               <strong className="text-gray-900 dark:text-gray-100">
-                qBittorrent or SABnzbd
+                Download Client
               </strong>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Download client for torrents (qBittorrent) or Usenet/NZB (SABnzbd)
+                qBittorrent, Transmission, SABnzbd, or NZBGet
               </p>
             </div>
           </li>

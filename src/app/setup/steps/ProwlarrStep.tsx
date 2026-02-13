@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { IndexerManagement } from '@/components/admin/indexers/IndexerManagement';
@@ -13,6 +13,7 @@ import { IndexerManagement } from '@/components/admin/indexers/IndexerManagement
 interface ProwlarrStepProps {
   prowlarrUrl: string;
   prowlarrApiKey: string;
+  prowlarrIndexers: SelectedIndexer[];
   onUpdate: (field: string, value: any) => void;
   onNext: () => void;
   onBack: () => void;
@@ -33,17 +34,19 @@ interface SelectedIndexer {
 export function ProwlarrStep({
   prowlarrUrl,
   prowlarrApiKey,
+  prowlarrIndexers,
   onUpdate,
   onNext,
   onBack,
 }: ProwlarrStepProps) {
-  const [configuredIndexers, setConfiguredIndexers] = useState<SelectedIndexer[]>([]);
+  const [configuredIndexers, setConfiguredIndexers] = useState<SelectedIndexer[]>(prowlarrIndexers);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Sync configured indexers with parent
-  useEffect(() => {
-    onUpdate('prowlarrIndexers', configuredIndexers);
-  }, [configuredIndexers, onUpdate]);
+  // Update both local and parent state when indexers change
+  const handleIndexersChange = (indexers: SelectedIndexer[]) => {
+    setConfiguredIndexers(indexers);
+    onUpdate('prowlarrIndexers', indexers);
+  };
 
   const handleNext = () => {
     setErrorMessage(null);
@@ -136,7 +139,7 @@ export function ProwlarrStep({
             prowlarrApiKey={prowlarrApiKey}
             mode="wizard"
             initialIndexers={configuredIndexers}
-            onIndexersChange={setConfiguredIndexers}
+            onIndexersChange={handleIndexersChange}
           />
         </div>
       </div>

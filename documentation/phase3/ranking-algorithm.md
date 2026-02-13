@@ -135,12 +135,13 @@ Evaluates and scores torrents to automatically select best audiobook download.
 - Proportional credit: If 2 of 3 authors match → 10 pts (2/3 × 15)
 - Full credit: If all authors match → 15 pts
 
-**2. Format Quality (25 pts max)**
-- M4B with chapters: 25
-- M4B without chapters: 22
-- M4A: 16
-- MP3: 10
-- Other: 3
+**2. Format Quality (10 pts max)**
+- M4B with chapters: 10
+- M4B without chapters: 9
+- FLAC: 7 (lossless audio)
+- M4A: 6
+- MP3: 4
+- Other: 1
 
 **3. Seeder Count (15 pts max)**
 - Formula: `Math.min(15, Math.log10(seeders + 1) * 6)`

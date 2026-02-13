@@ -4,10 +4,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSetupIncompleteOrAdmin } from '@/lib/middleware/auth';
 
 export async function POST(request: NextRequest) {
+  return requireSetupIncompleteOrAdmin(request, async (req) => {
   try {
-    const { serverUrl, apiToken } = await request.json();
+    const { serverUrl, apiToken } = await req.json();
 
     if (!serverUrl) {
       return NextResponse.json(
@@ -79,4 +81,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

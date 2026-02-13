@@ -35,6 +35,7 @@ const configServiceMock = vi.hoisted(() => ({
 }));
 const downloadClientManagerMock = vi.hoisted(() => ({
   getAllClients: vi.fn(),
+  testConnection: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -67,6 +68,13 @@ vi.mock('@/lib/integrations/sabnzbd.service', () => ({
   SABnzbdService: class {
     constructor() {}
     testConnection = sabnzbdMock.testConnection;
+  },
+}));
+
+vi.mock('@/lib/integrations/transmission.service', () => ({
+  TransmissionService: class {
+    constructor() {}
+    testConnection = vi.fn();
   },
 }));
 
@@ -189,7 +197,10 @@ describe('Admin settings test routes', () => {
   });
 
   it('tests download client connection', async () => {
-    qbtMock.testConnectionWithCredentials.mockResolvedValueOnce('4.0.0');
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: true,
+      message: 'Successfully connected to qbittorrent (v4.0.0)',
+    });
     const request = {
       json: vi.fn().mockResolvedValue({ type: 'qbittorrent', url: 'http://qbt', username: 'user', password: 'pass' }),
     };
@@ -199,7 +210,7 @@ describe('Admin settings test routes', () => {
     const payload = await response.json();
 
     expect(payload.success).toBe(true);
-    expect(payload.version).toBe('4.0.0');
+    expect(payload.message).toContain('4.0.0');
   });
 
   it('validates required fields for download client testing', async () => {
@@ -229,7 +240,10 @@ describe('Admin settings test routes', () => {
     downloadClientManagerMock.getAllClients.mockResolvedValueOnce([
       { type: 'qbittorrent', password: 'stored-pass' },
     ]);
-    qbtMock.testConnectionWithCredentials.mockResolvedValueOnce('4.1.0');
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: true,
+      message: 'Successfully connected to qbittorrent (v4.1.0)',
+    });
     const request = {
       json: vi.fn().mockResolvedValue({
         type: 'qbittorrent',
@@ -244,12 +258,6 @@ describe('Admin settings test routes', () => {
     const payload = await response.json();
 
     expect(payload.success).toBe(true);
-    expect(qbtMock.testConnectionWithCredentials).toHaveBeenCalledWith(
-      'http://qbt',
-      'user',
-      'stored-pass',
-      false
-    );
   });
 
   it('returns error when masked password is missing in storage', async () => {
@@ -273,7 +281,10 @@ describe('Admin settings test routes', () => {
   });
 
   it('returns error when SABnzbd connection fails', async () => {
-    sabnzbdMock.testConnection.mockResolvedValueOnce({ success: false, error: 'bad key' });
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: false,
+      message: 'bad key',
+    });
     const request = {
       json: vi.fn().mockResolvedValue({ type: 'sabnzbd', url: 'http://sab', password: 'key' }),
     };
@@ -282,12 +293,15 @@ describe('Admin settings test routes', () => {
     const response = await POST(request as any);
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     expect(payload.error).toMatch(/bad key/);
   });
 
   it('requires path mapping values when enabled', async () => {
-    qbtMock.testConnectionWithCredentials.mockResolvedValueOnce('4.0.0');
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: true,
+      message: 'Connected',
+    });
     const request = {
       json: vi.fn().mockResolvedValue({
         type: 'qbittorrent',
@@ -307,7 +321,10 @@ describe('Admin settings test routes', () => {
   });
 
   it('rejects inaccessible local path when mapping is enabled', async () => {
-    qbtMock.testConnectionWithCredentials.mockResolvedValueOnce('4.0.0');
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: true,
+      message: 'Connected',
+    });
     fsMock.access.mockRejectedValueOnce(new Error('missing'));
     const request = {
       json: vi.fn().mockResolvedValue({

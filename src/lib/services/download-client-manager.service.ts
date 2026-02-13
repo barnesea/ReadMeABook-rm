@@ -2,37 +2,42 @@
  * Component: Download Client Manager Service
  * Documentation: documentation/phase3/download-clients.md
  *
- * Manages multiple download clients (qBittorrent, SABnzbd) with protocol-based routing.
+ * Manages multiple download clients (qBittorrent, Transmission, SABnzbd, NZBGet) with protocol-based routing.
  * Supports migration from legacy single-client config to multi-client JSON array format.
  */
 
 import { randomUUID } from 'crypto';
+import path from 'path';
 import { ConfigurationService } from './config.service';
 import { getEncryptionService } from './encryption.service';
 import { isEncryptedFormat } from './credential-migration.service';
 import { RMABLogger } from '@/lib/utils/logger';
 import { QBittorrentService } from '@/lib/integrations/qbittorrent.service';
 import { SABnzbdService } from '@/lib/integrations/sabnzbd.service';
+import { NZBGetService } from '@/lib/integrations/nzbget.service';
+import { TransmissionService } from '@/lib/integrations/transmission.service';
 import { PathMappingConfig } from '@/lib/utils/path-mapper';
+import { IDownloadClient, DownloadClientType, ProtocolType, CLIENT_PROTOCOL_MAP, getClientDisplayName } from '@/lib/interfaces/download-client.interface';
 
 const logger = RMABLogger.create('DownloadClientManager');
 
 export interface DownloadClientConfig {
   id: string;
-  type: 'qbittorrent' | 'sabnzbd';
+  type: DownloadClientType;
   name: string;
   enabled: boolean;
   url: string;
-  username?: string; // qBittorrent only
-  password: string; // Password (qBittorrent) or API key (SABnzbd)
+  username?: string; // qBittorrent/Transmission/NZBGet only
+  password: string; // Password (qBittorrent/Transmission/NZBGet) or API key (SABnzbd)
   disableSSLVerify: boolean;
   remotePathMappingEnabled: boolean;
   remotePath?: string;
   localPath?: string;
   category?: string; // Default: 'readmeabook'
+  customPath?: string; // Relative sub-path appended to download_dir
+  postImportCategory?: string; // Category to assign after import (torrent clients only)
 }
 
-type ProtocolType = 'torrent' | 'usenet';
 
 /**
  * Download Client Manager
@@ -47,6 +52,7 @@ export class DownloadClientManager {
   private static instance: DownloadClientManager | null = null;
   private configService: ConfigurationService;
   private clientsCache: DownloadClientConfig[] | null = null;
+  private serviceCache: Map<string, IDownloadClient> = new Map();
   private migrationPerformed = false;
 
   private constructor(configService: ConfigurationService) {
@@ -69,6 +75,7 @@ export class DownloadClientManager {
   static invalidate(): void {
     if (DownloadClientManager.instance) {
       DownloadClientManager.instance.clientsCache = null;
+      DownloadClientManager.instance.serviceCache.clear();
       DownloadClientManager.instance.migrationPerformed = false;
       logger.debug('Download client cache invalidated');
     }
@@ -127,16 +134,17 @@ export class DownloadClientManager {
   }
 
   /**
-   * Get client for specific protocol
+   * Get client for specific protocol.
+   * Uses CLIENT_PROTOCOL_MAP so any client type matching the protocol is found
+   * (e.g. both qBittorrent and Transmission can serve the 'torrent' protocol).
    */
   async getClientForProtocol(protocol: ProtocolType): Promise<DownloadClientConfig | null> {
     const clients = await this.getAllClients();
-    const targetType = protocol === 'torrent' ? 'qbittorrent' : 'sabnzbd';
 
-    const client = clients.find(c => c.enabled && c.type === targetType);
+    const client = clients.find(c => c.enabled && CLIENT_PROTOCOL_MAP[c.type] === protocol);
 
     if (!client) {
-      logger.warn(`No enabled ${targetType} client configured`);
+      logger.warn(`No enabled ${protocol} client configured`);
       return null;
     }
 
@@ -152,36 +160,83 @@ export class DownloadClientManager {
   }
 
   /**
-   * Get instantiated client service for protocol
+   * Get instantiated client service for protocol.
+   * Returns the unified IDownloadClient interface for protocol-agnostic usage.
    */
-  async getClientServiceForProtocol(protocol: ProtocolType): Promise<QBittorrentService | SABnzbdService | null> {
+  async getClientServiceForProtocol(protocol: ProtocolType): Promise<IDownloadClient | null> {
     const client = await this.getClientForProtocol(protocol);
 
     if (!client) {
       return null;
     }
 
-    if (client.type === 'qbittorrent') {
-      return this.createQBittorrentService(client);
-    } else {
-      return this.createSABnzbdService(client);
+    return this.getOrCreateService(client);
+  }
+
+  /**
+   * Factory: create a new IDownloadClient from config.
+   * This is the single place where client type maps to a concrete class.
+   * Add new client types (e.g. Transmission, NZBGet) here.
+   */
+  private async createService(config: DownloadClientConfig): Promise<IDownloadClient> {
+    const baseDir = await this.configService.get('download_dir') || '/downloads';
+    const downloadDir = config.customPath
+      ? path.join(baseDir, config.customPath)
+      : baseDir;
+
+    switch (config.type) {
+      case 'qbittorrent':
+        return this.createQBittorrentService(config, downloadDir);
+      case 'sabnzbd':
+        return this.createSABnzbdService(config, downloadDir);
+      case 'nzbget':
+        return this.createNZBGetService(config, downloadDir);
+      case 'transmission':
+        return this.createTransmissionService(config, downloadDir);
+      default:
+        throw new Error(`Unsupported download client type: ${config.type}`);
     }
   }
 
   /**
-   * Test connection for a specific client config
+   * Get a cached service instance or create a new one.
+   * Caches by client config ID to preserve session state (e.g. qBittorrent SID cookie).
+   */
+  private async getOrCreateService(config: DownloadClientConfig): Promise<IDownloadClient> {
+    const cached = this.serviceCache.get(config.id);
+    if (cached) {
+      return cached;
+    }
+
+    const service = await this.createService(config);
+    this.serviceCache.set(config.id, service);
+    return service;
+  }
+
+  /**
+   * Create an IDownloadClient instance from a config object.
+   * Uses cached instances when available to preserve session state.
+   */
+  async createClientFromConfig(config: DownloadClientConfig): Promise<IDownloadClient> {
+    return this.getOrCreateService(config);
+  }
+
+  /**
+   * Test connection for a specific client config.
+   * Uses the unified IDownloadClient.testConnection() method.
    */
   async testConnection(config: DownloadClientConfig): Promise<{ success: boolean; message: string }> {
     try {
-      if (config.type === 'qbittorrent') {
-        const service = this.createQBittorrentService(config);
-        await service.testConnection();
-        return { success: true, message: 'Successfully connected to qBittorrent' };
-      } else {
-        const service = this.createSABnzbdService(config);
-        const version = await service.getVersion();
-        return { success: true, message: `Successfully connected to SABnzbd (v${version})` };
+      // Always create a fresh instance for connection testing (don't use cache)
+      const service = await this.createService(config);
+      const result = await service.testConnection();
+
+      if (result.success) {
+        const versionSuffix = result.version ? ` (v${result.version})` : '';
+        return { success: true, message: `Successfully connected to ${config.name}${versionSuffix}` };
       }
+
+      return { success: false, message: result.message || 'Connection failed' };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error('Connection test failed', { type: config.type, error: message });
@@ -192,7 +247,7 @@ export class DownloadClientManager {
   /**
    * Create qBittorrent service instance
    */
-  private createQBittorrentService(config: DownloadClientConfig): QBittorrentService {
+  private createQBittorrentService(config: DownloadClientConfig, downloadDir: string): QBittorrentService {
     const pathMapping: PathMappingConfig | undefined = config.remotePathMappingEnabled && config.remotePath && config.localPath
       ? {
           enabled: true,
@@ -205,8 +260,8 @@ export class DownloadClientManager {
       config.url,
       config.username || '',
       config.password || '', // Optional for IP whitelist auth
-      '/downloads', // defaultSavePath
-      config.category || 'readmeabook', // defaultCategory
+      downloadDir,
+      config.category || 'readmeabook',
       config.disableSSLVerify,
       pathMapping
     );
@@ -215,7 +270,7 @@ export class DownloadClientManager {
   /**
    * Create SABnzbd service instance
    */
-  private createSABnzbdService(config: DownloadClientConfig): SABnzbdService {
+  private createSABnzbdService(config: DownloadClientConfig, downloadDir: string): SABnzbdService {
     const pathMapping: PathMappingConfig | undefined = config.remotePathMappingEnabled && config.remotePath && config.localPath
       ? {
           enabled: true,
@@ -227,8 +282,54 @@ export class DownloadClientManager {
     return new SABnzbdService(
       config.url,
       config.password, // API key stored in password field
-      config.category || 'readmeabook', // defaultCategory
-      '/downloads', // defaultDownloadDir (will be overridden by singleton with actual config)
+      config.category || 'readmeabook',
+      downloadDir,
+      config.disableSSLVerify,
+      pathMapping
+    );
+  }
+
+  /**
+   * Create NZBGet service instance
+   */
+  private createNZBGetService(config: DownloadClientConfig, downloadDir: string): NZBGetService {
+    const pathMapping: PathMappingConfig | undefined = config.remotePathMappingEnabled && config.remotePath && config.localPath
+      ? {
+          enabled: true,
+          remotePath: config.remotePath,
+          localPath: config.localPath,
+        }
+      : undefined;
+
+    return new NZBGetService(
+      config.url,
+      config.username || '',
+      config.password,
+      config.category || 'readmeabook',
+      downloadDir,
+      config.disableSSLVerify,
+      pathMapping
+    );
+  }
+
+  /**
+   * Create Transmission service instance
+   */
+  private createTransmissionService(config: DownloadClientConfig, downloadDir: string): TransmissionService {
+    const pathMapping: PathMappingConfig | undefined = config.remotePathMappingEnabled && config.remotePath && config.localPath
+      ? {
+          enabled: true,
+          remotePath: config.remotePath,
+          localPath: config.localPath,
+        }
+      : undefined;
+
+    return new TransmissionService(
+      config.url,
+      config.username || '',
+      config.password || '',
+      downloadDir,
+      config.category || 'readmeabook',
       config.disableSSLVerify,
       pathMapping
     );
@@ -272,8 +373,8 @@ export class DownloadClientManager {
 
     const newClient: DownloadClientConfig = {
       id: randomUUID(),
-      type: clientType as 'qbittorrent' | 'sabnzbd',
-      name: clientType === 'qbittorrent' ? 'qBittorrent' : 'SABnzbd',
+      type: clientType as DownloadClientType,
+      name: getClientDisplayName(clientType),
       enabled: true,
       url: clientUrl,
       username: clientUsername || undefined,

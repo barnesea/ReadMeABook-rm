@@ -5,13 +5,14 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { DownloadClientManagement } from '@/components/admin/download-clients/DownloadClientManagement';
+import { DownloadClientType } from '@/lib/interfaces/download-client.interface';
 
 interface DownloadClient {
   id: string;
-  type: 'qbittorrent' | 'sabnzbd';
+  type: DownloadClientType;
   name: string;
   enabled: boolean;
   url: string;
@@ -22,10 +23,13 @@ interface DownloadClient {
   remotePath?: string;
   localPath?: string;
   category?: string;
+  customPath?: string;
+  postImportCategory?: string;
 }
 
 interface DownloadClientStepProps {
   downloadClients: DownloadClient[];
+  downloadDir?: string;
   onUpdate: (field: string, value: any) => void;
   onNext: () => void;
   onBack: () => void;
@@ -33,6 +37,7 @@ interface DownloadClientStepProps {
 
 export function DownloadClientStep({
   downloadClients,
+  downloadDir,
   onUpdate,
   onNext,
   onBack,
@@ -66,7 +71,7 @@ export function DownloadClientStep({
           Configure Download Clients
         </h2>
         <p className="text-gray-600 dark:text-gray-400">
-          Add at least one download client. You can configure both qBittorrent (torrents) and SABnzbd (Usenet) to search across all indexer types.
+          Add at least one download client. You can configure a torrent client (qBittorrent or Transmission) and/or a usenet client (SABnzbd or NZBGet) to search across all indexer types.
         </p>
       </div>
 
@@ -80,6 +85,7 @@ export function DownloadClientStep({
         mode="wizard"
         initialClients={clients}
         onClientsChange={handleClientsChange}
+        downloadDir={downloadDir}
       />
 
       <div className="flex justify-between pt-6 border-t border-gray-200 dark:border-gray-700">

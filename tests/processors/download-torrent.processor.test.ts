@@ -15,6 +15,7 @@ const sabMock = vi.hoisted(() => ({ addNZB: vi.fn() }));
 
 const downloadClientManagerMock = vi.hoisted(() => ({
   getClientForProtocol: vi.fn(),
+  getClientServiceForProtocol: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -92,12 +93,18 @@ describe('processDownloadTorrent', () => {
   };
 
   it('routes torrent downloads to qBittorrent', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      addDownload: vi.fn().mockResolvedValue('hash-1'),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-1',
       type: 'qbittorrent',
       enabled: true,
+      category: 'readmeabook',
     });
-    qbtMock.addTorrent.mockResolvedValue('hash-1');
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.downloadHistory.create.mockResolvedValue({ id: 'dh-1' });
 
@@ -105,8 +112,8 @@ describe('processDownloadTorrent', () => {
     const result = await processDownloadTorrent(torrentPayload);
 
     expect(result.success).toBe(true);
-    expect(downloadClientManagerMock.getClientForProtocol).toHaveBeenCalledWith('torrent');
-    expect(qbtMock.addTorrent).toHaveBeenCalled();
+    expect(downloadClientManagerMock.getClientServiceForProtocol).toHaveBeenCalledWith('torrent');
+    expect(qbtClientMock.addDownload).toHaveBeenCalled();
     expect(jobQueueMock.addMonitorJob).toHaveBeenCalledWith(
       'req-1',
       'dh-1',
@@ -117,12 +124,18 @@ describe('processDownloadTorrent', () => {
   });
 
   it('routes NZB downloads to SABnzbd', async () => {
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      addDownload: vi.fn().mockResolvedValue('nzb-1'),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-2',
       type: 'sabnzbd',
       enabled: true,
+      category: 'readmeabook',
     });
-    sabMock.addNZB.mockResolvedValue('nzb-1');
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.downloadHistory.create.mockResolvedValue({ id: 'dh-2' });
 
@@ -130,8 +143,8 @@ describe('processDownloadTorrent', () => {
     const result = await processDownloadTorrent(nzbPayload);
 
     expect(result.success).toBe(true);
-    expect(downloadClientManagerMock.getClientForProtocol).toHaveBeenCalledWith('usenet');
-    expect(sabMock.addNZB).toHaveBeenCalled();
+    expect(downloadClientManagerMock.getClientServiceForProtocol).toHaveBeenCalledWith('usenet');
+    expect(sabClientMock.addDownload).toHaveBeenCalled();
     expect(jobQueueMock.addMonitorJob).toHaveBeenCalledWith(
       'req-2',
       'dh-2',
@@ -142,44 +155,57 @@ describe('processDownloadTorrent', () => {
   });
 
   it('throws error when no client configured for protocol', async () => {
-    downloadClientManagerMock.getClientForProtocol.mockResolvedValue(null);
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(null);
+    prismaMock.request.update.mockResolvedValue({});
 
     const { processDownloadTorrent } = await import('@/lib/processors/download-torrent.processor');
 
     await expect(processDownloadTorrent(torrentPayload)).rejects.toThrow(
-      'No Torrent (qBittorrent) client configured'
+      'No torrent download client configured'
     );
 
-    expect(downloadClientManagerMock.getClientForProtocol).toHaveBeenCalledWith('torrent');
+    expect(downloadClientManagerMock.getClientServiceForProtocol).toHaveBeenCalledWith('torrent');
   });
 
   it('detects protocol from result and routes appropriately', async () => {
     // Torrent result
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      addDownload: vi.fn().mockResolvedValue('hash-1'),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValueOnce(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValueOnce({
       id: 'client-1',
       type: 'qbittorrent',
       enabled: true,
+      category: 'readmeabook',
     });
-    qbtMock.addTorrent.mockResolvedValue('hash-1');
     prismaMock.request.update.mockResolvedValue({});
     prismaMock.downloadHistory.create.mockResolvedValue({ id: 'dh-1' });
 
     const { processDownloadTorrent } = await import('@/lib/processors/download-torrent.processor');
     await processDownloadTorrent(torrentPayload);
 
-    expect(downloadClientManagerMock.getClientForProtocol).toHaveBeenCalledWith('torrent');
+    expect(downloadClientManagerMock.getClientServiceForProtocol).toHaveBeenCalledWith('torrent');
 
     // NZB result
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      addDownload: vi.fn().mockResolvedValue('nzb-1'),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValueOnce(sabClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValueOnce({
       id: 'client-2',
       type: 'sabnzbd',
       enabled: true,
+      category: 'readmeabook',
     });
-    sabMock.addNZB.mockResolvedValue('nzb-1');
     prismaMock.downloadHistory.create.mockResolvedValue({ id: 'dh-2' });
 
     await processDownloadTorrent(nzbPayload);
 
-    expect(downloadClientManagerMock.getClientForProtocol).toHaveBeenCalledWith('usenet');
+    expect(downloadClientManagerMock.getClientServiceForProtocol).toHaveBeenCalledWith('usenet');
   });
 });

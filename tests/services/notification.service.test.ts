@@ -18,6 +18,7 @@ prismaMock.notificationBackend = {
 const encryptionMock = vi.hoisted(() => ({
   encrypt: vi.fn((value: string) => `enc:${value}`),
   decrypt: vi.fn((value: string) => value.replace('enc:', '')),
+  isEncryptedFormat: vi.fn((value: string) => typeof value === 'string' && value.startsWith('enc:')),
 }));
 
 const fetchMock = vi.hoisted(() => vi.fn());
@@ -29,6 +30,32 @@ vi.mock('@/lib/db', () => ({
 vi.mock('@/lib/services/encryption.service', () => ({
   getEncryptionService: () => encryptionMock,
 }));
+
+describe('getEventTitle', () => {
+  it('returns type-specific title when requestType matches titleByRequestType', async () => {
+    const { getEventTitle } = await import('@/lib/constants/notification-events');
+    expect(getEventTitle('request_available', 'audiobook')).toBe('Audiobook Available');
+    expect(getEventTitle('request_available', 'ebook')).toBe('Ebook Available');
+  });
+
+  it('returns default title when requestType is not provided', async () => {
+    const { getEventTitle } = await import('@/lib/constants/notification-events');
+    expect(getEventTitle('request_available')).toBe('Request Available');
+    expect(getEventTitle('request_available', undefined)).toBe('Request Available');
+  });
+
+  it('returns default title when requestType does not match any entry', async () => {
+    const { getEventTitle } = await import('@/lib/constants/notification-events');
+    expect(getEventTitle('request_available', 'podcast')).toBe('Request Available');
+  });
+
+  it('returns default title for events without titleByRequestType', async () => {
+    const { getEventTitle } = await import('@/lib/constants/notification-events');
+    expect(getEventTitle('request_approved', 'audiobook')).toBe('Request Approved');
+    expect(getEventTitle('request_error')).toBe('Request Error');
+    expect(getEventTitle('request_pending_approval')).toBe('New Request Pending Approval');
+  });
+});
 
 describe('NotificationService', () => {
   beforeEach(() => {
@@ -66,7 +93,7 @@ describe('NotificationService', () => {
         json: async () => ({ success: true }),
       });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
+      const { NotificationService } = await import('@/lib/services/notification');
       const service = new NotificationService();
 
       await service.sendNotification({
@@ -92,7 +119,7 @@ describe('NotificationService', () => {
     it('does not send if no backends are subscribed to the event', async () => {
       prismaMock.notificationBackend.findMany.mockResolvedValue([]);
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
+      const { NotificationService } = await import('@/lib/services/notification');
       const service = new NotificationService();
 
       await service.sendNotification({
@@ -139,7 +166,7 @@ describe('NotificationService', () => {
           json: async () => ({ success: true }),
         });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
+      const { NotificationService } = await import('@/lib/services/notification');
       const service = new NotificationService();
 
       await service.sendNotification({
@@ -156,19 +183,98 @@ describe('NotificationService', () => {
     });
   });
 
-  describe('sendDiscord', () => {
+  describe('sendToBackend', () => {
+    it('routes to Discord provider and decrypts config', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+      const { NotificationService } = await import('@/lib/services/notification');
+      const service = new NotificationService();
+
+      await service.sendToBackend(
+        'discord',
+        { webhookUrl: 'enc:https://discord.com/webhook', username: 'ReadMeABook' },
+        {
+          event: 'request_approved',
+          requestId: 'req-1',
+          title: 'Test Book',
+          author: 'Test Author',
+          userName: 'Test User',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+        }
+      );
+
+      expect(encryptionMock.decrypt).toHaveBeenCalledWith('enc:https://discord.com/webhook');
+      expect(fetchMock).toHaveBeenCalled();
+
+      const fetchCall = fetchMock.mock.calls[0];
+      // Decrypted URL should be used
+      expect(fetchCall[0]).toBe('https://discord.com/webhook');
+    });
+
+    it('routes to Pushover provider and decrypts config', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 1 }),
+      });
+
+      const { NotificationService } = await import('@/lib/services/notification');
+      const service = new NotificationService();
+
+      await service.sendToBackend(
+        'pushover',
+        { userKey: 'enc:user123', appToken: 'enc:app456', priority: 1 },
+        {
+          event: 'request_approved',
+          requestId: 'req-1',
+          title: 'Test Book',
+          author: 'Test Author',
+          userName: 'Test User',
+          timestamp: new Date(),
+        }
+      );
+
+      expect(encryptionMock.decrypt).toHaveBeenCalledWith('enc:user123');
+      expect(encryptionMock.decrypt).toHaveBeenCalledWith('enc:app456');
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    it('throws error for unsupported backend type', async () => {
+      const { NotificationService } = await import('@/lib/services/notification');
+      const service = new NotificationService();
+
+      await expect(
+        service.sendToBackend(
+          'email',
+          {},
+          {
+            event: 'request_approved',
+            requestId: 'req-1',
+            title: 'Test Book',
+            author: 'Test Author',
+            userName: 'Test User',
+            timestamp: new Date(),
+          }
+        )
+      ).rejects.toThrow('Unsupported backend type: email');
+    });
+  });
+
+  describe('DiscordProvider', () => {
     it('sends Discord webhook with rich embed', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ success: true }),
       });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
-      const service = new NotificationService();
+      const { DiscordProvider } = await import('@/lib/services/notification');
+      const provider = new DiscordProvider();
 
-      await service.sendDiscord(
+      await provider.send(
         {
-          webhookUrl: 'enc:https://discord.com/webhook',
+          webhookUrl: 'https://discord.com/webhook',
           username: 'ReadMeABook',
         },
         {
@@ -181,12 +287,12 @@ describe('NotificationService', () => {
         }
       );
 
-      // Should call the webhook (URL decryption happens internally)
       expect(fetchMock).toHaveBeenCalled();
 
       const fetchCall = fetchMock.mock.calls[0];
       const body = JSON.parse(fetchCall[1].body);
 
+      expect(fetchCall[0]).toBe('https://discord.com/webhook');
       expect(fetchCall[1].method).toBe('POST');
       expect(fetchCall[1].headers['Content-Type']).toBe('application/json');
       expect(body.username).toBe('ReadMeABook');
@@ -195,18 +301,80 @@ describe('NotificationService', () => {
       expect(body.embeds[0].color).toBe(2278750); // Green for approved (0x22C55E)
     });
 
+    it('uses type-specific title for request_available with requestType', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+      const { DiscordProvider } = await import('@/lib/services/notification');
+      const provider = new DiscordProvider();
+
+      // Test audiobook
+      await provider.send(
+        { webhookUrl: 'https://discord.com/webhook' },
+        {
+          event: 'request_available',
+          requestId: 'req-1',
+          title: 'Test Book',
+          author: 'Test Author',
+          userName: 'Test User',
+          requestType: 'audiobook',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+        }
+      );
+
+      let body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.embeds[0].title).toBe('\u{1F389} Audiobook Available');
+
+      // Test ebook
+      fetchMock.mockClear();
+      await provider.send(
+        { webhookUrl: 'https://discord.com/webhook' },
+        {
+          event: 'request_available',
+          requestId: 'req-2',
+          title: 'Test Book 2',
+          author: 'Test Author 2',
+          userName: 'Test User',
+          requestType: 'ebook',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+        }
+      );
+
+      body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.embeds[0].title).toBe('\u{1F389} Ebook Available');
+
+      // Test fallback (no requestType)
+      fetchMock.mockClear();
+      await provider.send(
+        { webhookUrl: 'https://discord.com/webhook' },
+        {
+          event: 'request_available',
+          requestId: 'req-3',
+          title: 'Test Book 3',
+          author: 'Test Author 3',
+          userName: 'Test User',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+        }
+      );
+
+      body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.embeds[0].title).toBe('\u{1F389} Request Available');
+    });
+
     it('uses default username if not provided', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ success: true }),
       });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
-      const service = new NotificationService();
+      const { DiscordProvider } = await import('@/lib/services/notification');
+      const provider = new DiscordProvider();
 
-      await service.sendDiscord(
+      await provider.send(
         {
-          webhookUrl: 'enc:https://discord.com/webhook',
+          webhookUrl: 'https://discord.com/webhook',
         },
         {
           event: 'request_approved',
@@ -230,12 +398,12 @@ describe('NotificationService', () => {
         text: async () => 'Bad Request',
       });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
-      const service = new NotificationService();
+      const { DiscordProvider } = await import('@/lib/services/notification');
+      const provider = new DiscordProvider();
 
       await expect(
-        service.sendDiscord(
-          { webhookUrl: 'enc:https://discord.com/webhook' },
+        provider.send(
+          { webhookUrl: 'https://discord.com/webhook' },
           {
             event: 'request_approved',
             requestId: 'req-1',
@@ -249,20 +417,20 @@ describe('NotificationService', () => {
     });
   });
 
-  describe('sendPushover', () => {
+  describe('PushoverProvider', () => {
     it('sends Pushover notification with correct payload', async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ status: 1 }),
       });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
-      const service = new NotificationService();
+      const { PushoverProvider } = await import('@/lib/services/notification');
+      const provider = new PushoverProvider();
 
-      await service.sendPushover(
+      await provider.send(
         {
-          userKey: 'enc:user123',
-          appToken: 'enc:app456',
+          userKey: 'user123',
+          appToken: 'app456',
           priority: 1,
         },
         {
@@ -275,7 +443,6 @@ describe('NotificationService', () => {
         }
       );
 
-      // Should call the Pushover API (credential decryption happens internally)
       expect(fetchMock).toHaveBeenCalled();
 
       const fetchCall = fetchMock.mock.calls[0];
@@ -296,13 +463,13 @@ describe('NotificationService', () => {
         json: async () => ({ status: 1 }),
       });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
-      const service = new NotificationService();
+      const { PushoverProvider } = await import('@/lib/services/notification');
+      const provider = new PushoverProvider();
 
-      await service.sendPushover(
+      await provider.send(
         {
-          userKey: 'enc:user123',
-          appToken: 'enc:app456',
+          userKey: 'user123',
+          appToken: 'app456',
         },
         {
           event: 'request_approved',
@@ -325,12 +492,12 @@ describe('NotificationService', () => {
         text: async () => 'invalid user key',
       });
 
-      const { NotificationService } = await import('@/lib/services/notification.service');
-      const service = new NotificationService();
+      const { PushoverProvider } = await import('@/lib/services/notification');
+      const provider = new PushoverProvider();
 
       await expect(
-        service.sendPushover(
-          { userKey: 'enc:user123', appToken: 'enc:app456' },
+        provider.send(
+          { userKey: 'user123', appToken: 'app456' },
           {
             event: 'request_approved',
             requestId: 'req-1',
@@ -344,11 +511,9 @@ describe('NotificationService', () => {
     });
   });
 
-  // Note: formatDiscordEmbed is a private method, tested indirectly through sendDiscord
-
   describe('encryptConfig', () => {
     it('encrypts sensitive Discord config values', async () => {
-      const { NotificationService } = await import('@/lib/services/notification.service');
+      const { NotificationService } = await import('@/lib/services/notification');
       const service = new NotificationService();
 
       const encrypted = service.encryptConfig('discord', {
@@ -362,7 +527,7 @@ describe('NotificationService', () => {
     });
 
     it('encrypts sensitive Pushover config values', async () => {
-      const { NotificationService } = await import('@/lib/services/notification.service');
+      const { NotificationService } = await import('@/lib/services/notification');
       const service = new NotificationService();
 
       const encrypted = service.encryptConfig('pushover', {
@@ -379,11 +544,157 @@ describe('NotificationService', () => {
     });
   });
 
-  // Note: decryptConfig is a private method, tested indirectly through sendDiscord/sendPushover
+  describe('getRegisteredProviderTypes', () => {
+    it('returns all registered provider type keys', async () => {
+      const { getRegisteredProviderTypes } = await import('@/lib/services/notification');
+      const types = getRegisteredProviderTypes();
+
+      expect(types).toContain('apprise');
+      expect(types).toContain('discord');
+      expect(types).toContain('ntfy');
+      expect(types).toContain('pushover');
+      expect(types).toHaveLength(4);
+    });
+  });
+
+  describe('getAllProviderMetadata', () => {
+    it('returns metadata for all registered providers', async () => {
+      const { getAllProviderMetadata } = await import('@/lib/services/notification');
+      const metadata = getAllProviderMetadata();
+
+      expect(metadata).toHaveLength(4);
+
+      const apprise = metadata.find((m) => m.type === 'apprise');
+      expect(apprise).toBeDefined();
+      expect(apprise!.displayName).toBe('Apprise');
+      expect(apprise!.iconLabel).toBe('A');
+      expect(apprise!.iconColor).toBe('bg-purple-500');
+
+      const discord = metadata.find((m) => m.type === 'discord');
+      expect(discord).toBeDefined();
+      expect(discord!.displayName).toBe('Discord');
+      expect(discord!.iconLabel).toBe('D');
+      expect(discord!.iconColor).toBe('bg-indigo-500');
+      expect(discord!.configFields.length).toBeGreaterThan(0);
+
+      const ntfy = metadata.find((m) => m.type === 'ntfy');
+      expect(ntfy).toBeDefined();
+      expect(ntfy!.displayName).toBe('ntfy');
+      expect(ntfy!.iconLabel).toBe('N');
+
+      const pushover = metadata.find((m) => m.type === 'pushover');
+      expect(pushover).toBeDefined();
+      expect(pushover!.displayName).toBe('Pushover');
+      expect(pushover!.iconLabel).toBe('P');
+    });
+
+    it('includes config field definitions with correct properties', async () => {
+      const { getAllProviderMetadata } = await import('@/lib/services/notification');
+      const metadata = getAllProviderMetadata();
+
+      const discord = metadata.find((m) => m.type === 'discord')!;
+      const webhookField = discord.configFields.find((f) => f.name === 'webhookUrl');
+      expect(webhookField).toBeDefined();
+      expect(webhookField!.required).toBe(true);
+      expect(webhookField!.type).toBe('text');
+
+      const pushover = metadata.find((m) => m.type === 'pushover')!;
+      const priorityField = pushover.configFields.find((f) => f.name === 'priority');
+      expect(priorityField).toBeDefined();
+      expect(priorityField!.type).toBe('select');
+      expect(priorityField!.options).toBeDefined();
+      expect(priorityField!.options!.length).toBe(5);
+    });
+  });
+
+  describe('reEncryptUnprotectedBackends', () => {
+    it('re-encrypts plaintext sensitive fields stored due to isEncrypted bug', async () => {
+      // Simulate a backend with a Telegram URL stored as plaintext (the bug)
+      prismaMock.notificationBackend.findMany.mockResolvedValue([
+        {
+          id: 'backend-1',
+          type: 'apprise',
+          name: 'Telegram via Apprise',
+          config: {
+            serverUrl: 'http://apprise:8000',
+            urls: 'tgram://1234567890:PLPe1Hh-VhbRC3MoT5QngwkPHoMTD/-100181291455/',
+          },
+          events: ['request_available'],
+          enabled: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      prismaMock.notificationBackend.update.mockResolvedValue({} as any);
+
+      // Mock isEncryptedFormat to return false for the plaintext URL
+      encryptionMock.isEncryptedFormat.mockImplementation(
+        (value: string) => typeof value === 'string' && value.startsWith('enc:')
+      );
+
+      const { NotificationService } = await import('@/lib/services/notification');
+      const service = new NotificationService();
+
+      const fixed = await service.reEncryptUnprotectedBackends();
+
+      expect(fixed).toBe(1);
+      expect(encryptionMock.encrypt).toHaveBeenCalledWith(
+        'tgram://1234567890:PLPe1Hh-VhbRC3MoT5QngwkPHoMTD/-100181291455/'
+      );
+      expect(prismaMock.notificationBackend.update).toHaveBeenCalledWith({
+        where: { id: 'backend-1' },
+        data: {
+          config: {
+            serverUrl: 'http://apprise:8000',
+            urls: 'enc:tgram://1234567890:PLPe1Hh-VhbRC3MoT5QngwkPHoMTD/-100181291455/',
+          },
+        },
+      });
+    });
+
+    it('skips backends with already-encrypted fields', async () => {
+      prismaMock.notificationBackend.findMany.mockResolvedValue([
+        {
+          id: 'backend-1',
+          type: 'discord',
+          name: 'Discord',
+          config: { webhookUrl: 'enc:https://discord.com/webhook', username: 'Bot' },
+          events: ['request_available'],
+          enabled: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      encryptionMock.isEncryptedFormat.mockImplementation(
+        (value: string) => typeof value === 'string' && value.startsWith('enc:')
+      );
+
+      const { NotificationService } = await import('@/lib/services/notification');
+      const service = new NotificationService();
+
+      const fixed = await service.reEncryptUnprotectedBackends();
+
+      expect(fixed).toBe(0);
+      expect(prismaMock.notificationBackend.update).not.toHaveBeenCalled();
+    });
+
+    it('returns 0 when no backends exist', async () => {
+      prismaMock.notificationBackend.findMany.mockResolvedValue([]);
+
+      const { NotificationService } = await import('@/lib/services/notification');
+      const service = new NotificationService();
+
+      const fixed = await service.reEncryptUnprotectedBackends();
+
+      expect(fixed).toBe(0);
+    });
+  });
 
   describe('maskConfig', () => {
     it('masks sensitive Discord config values', async () => {
-      const { NotificationService } = await import('@/lib/services/notification.service');
+      const { NotificationService } = await import('@/lib/services/notification');
       const service = new NotificationService();
 
       const masked = service.maskConfig('discord', {
@@ -396,7 +707,7 @@ describe('NotificationService', () => {
     });
 
     it('masks sensitive Pushover config values', async () => {
-      const { NotificationService } = await import('@/lib/services/notification.service');
+      const { NotificationService } = await import('@/lib/services/notification');
       const service = new NotificationService();
 
       const masked = service.maskConfig('pushover', {

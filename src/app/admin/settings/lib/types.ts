@@ -98,6 +98,7 @@ export interface PathsSettings {
   downloadDir: string;
   mediaDir: string;
   audiobookPathTemplate?: string;
+  ebookPathTemplate?: string;
   metadataTaggingEnabled: boolean;
   chapterMergingEnabled: boolean;
 }

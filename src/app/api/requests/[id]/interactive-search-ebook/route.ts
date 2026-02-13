@@ -321,9 +321,14 @@ async function searchIndexersForInteractive(
   const flagConfigs = flagConfigStr ? JSON.parse(flagConfigStr) : [];
 
   // Group indexers by ebook categories
-  const groups = groupIndexersByCategories(indexersConfig, 'ebook');
+  const { groups, skippedIndexers } = groupIndexersByCategories(indexersConfig, 'ebook');
 
-  logger.info(`Searching ${indexersConfig.length} indexers in ${groups.length} group(s)`);
+  if (skippedIndexers.length > 0) {
+    const skippedNames = skippedIndexers.map(idx => idx.name).join(', ');
+    logger.info(`Skipping ${skippedIndexers.length} indexer(s) with no ebook categories: ${skippedNames}`);
+  }
+
+  logger.info(`Searching ${indexersConfig.length - skippedIndexers.length} indexers in ${groups.length} group(s)`);
 
   // Get Prowlarr service
   const prowlarr = await getProwlarrService();

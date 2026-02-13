@@ -149,6 +149,15 @@ describe('BookDate test connection route', () => {
   it('returns Claude models for unauthenticated requests', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [
+          { id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', type: 'model', created_at: '2025-09-29T00:00:00Z' },
+          { id: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5', type: 'model', created_at: '2025-10-01T00:00:00Z' },
+        ],
+        has_more: false,
+        first_id: 'claude-sonnet-4-5-20250929',
+        last_id: 'claude-haiku-4-5-20251001',
+      }),
       text: vi.fn().mockResolvedValue('ok'),
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -161,7 +170,142 @@ describe('BookDate test connection route', () => {
 
     const payload = await response.json();
     expect(payload.success).toBe(true);
-    expect(payload.models.length).toBe(4);
+    expect(payload.models).toEqual([
+      { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5' },
+      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('https://api.anthropic.com/v1/models'),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'x-api-key': 'key' }),
+      })
+    );
+  });
+
+  it('returns Claude models for authenticated requests', async () => {
+    requireAuthMock.mockImplementation((_req: any, handler: any) => handler(_req));
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [
+          { id: 'claude-opus-4-20250514', display_name: 'Claude Opus 4', type: 'model', created_at: '2025-05-14T00:00:00Z' },
+        ],
+        has_more: false,
+        first_id: 'claude-opus-4-20250514',
+        last_id: 'claude-opus-4-20250514',
+      }),
+      text: vi.fn().mockResolvedValue('ok'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { POST } = await import('@/app/api/bookdate/test-connection/route');
+    const response = await POST({
+      headers: { get: () => 'Bearer token' },
+      json: vi.fn().mockResolvedValue({ provider: 'claude', apiKey: 'key' }),
+    } as any);
+
+    const payload = await response.json();
+    expect(payload.success).toBe(true);
+    expect(payload.models).toEqual([
+      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
+    ]);
+  });
+
+  it('returns error for invalid Claude API key', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      text: vi.fn().mockResolvedValue('{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { POST } = await import('@/app/api/bookdate/test-connection/route');
+    const response = await POST({
+      headers: { get: () => null },
+      json: vi.fn().mockResolvedValue({ provider: 'claude', apiKey: 'bad-key' }),
+    } as any);
+
+    const payload = await response.json();
+    expect(response.status).toBe(400);
+    expect(payload.error).toMatch(/Invalid Claude API key/i);
+  });
+
+  it('paginates through Claude models when has_more is true', async () => {
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({
+            data: [
+              { id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', type: 'model', created_at: '2025-09-29T00:00:00Z' },
+            ],
+            has_more: true,
+            first_id: 'claude-sonnet-4-5-20250929',
+            last_id: 'claude-sonnet-4-5-20250929',
+          }),
+          text: vi.fn().mockResolvedValue('ok'),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5', type: 'model', created_at: '2025-10-01T00:00:00Z' },
+          ],
+          has_more: false,
+          first_id: 'claude-haiku-4-5-20251001',
+          last_id: 'claude-haiku-4-5-20251001',
+        }),
+        text: vi.fn().mockResolvedValue('ok'),
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { POST } = await import('@/app/api/bookdate/test-connection/route');
+    const response = await POST({
+      headers: { get: () => null },
+      json: vi.fn().mockResolvedValue({ provider: 'claude', apiKey: 'key' }),
+    } as any);
+
+    const payload = await response.json();
+    expect(payload.success).toBe(true);
+    expect(payload.models).toEqual([
+      { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5' },
+      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Second call should include after_id for pagination
+    expect(fetchMock.mock.calls[1][0]).toContain('after_id=claude-sonnet-4-5-20250929');
+  });
+
+  it('falls back to model id when display_name is missing', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [
+          { id: 'claude-test-model', type: 'model', created_at: '2025-01-01T00:00:00Z' },
+        ],
+        has_more: false,
+        first_id: 'claude-test-model',
+        last_id: 'claude-test-model',
+      }),
+      text: vi.fn().mockResolvedValue('ok'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { POST } = await import('@/app/api/bookdate/test-connection/route');
+    const response = await POST({
+      headers: { get: () => null },
+      json: vi.fn().mockResolvedValue({ provider: 'claude', apiKey: 'key' }),
+    } as any);
+
+    const payload = await response.json();
+    expect(payload.success).toBe(true);
+    expect(payload.models).toEqual([
+      { id: 'claude-test-model', name: 'claude-test-model' },
+    ]);
   });
 
   it('returns OpenAI error for unauthenticated requests with invalid key', async () => {

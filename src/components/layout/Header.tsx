@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { VersionBadge } from '@/components/ui/VersionBadge';
 import { ChangePasswordModal } from '@/components/ui/ChangePasswordModal';
+import { AddGoodreadsShelfModal } from '@/components/ui/AddGoodreadsShelfModal';
 import { useSmartDropdownPosition } from '@/hooks/useSmartDropdownPosition';
 import { RequestLimitInfo } from '@/components/layout/RequestLimitInfo';
 
@@ -21,6 +22,7 @@ export function Header() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showBookDate, setShowBookDate] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showAddGoodreadsModal, setShowAddGoodreadsModal] = useState(false);
   const { containerRef, dropdownRef, positionAbove, style } = useSmartDropdownPosition(showUserMenu);
 
   // Check if user can change password (local users only)
@@ -91,6 +93,15 @@ export function Header() {
       >
         Profile
       </Link>
+      <button
+        onClick={() => {
+          setShowUserMenu(false);
+          setShowAddGoodreadsModal(true);
+        }}
+        className="w-full text-left px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+      >
+        Add Goodreads Shelf
+      </button>
       {canChangePassword && (
         <button
           onClick={() => {
@@ -149,6 +160,12 @@ export function Header() {
               className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
             >
               Search
+            </Link>
+            <Link
+              href="/authors"
+              className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              Authors
             </Link>
             {showBookDate && (
               <Link
@@ -257,6 +274,13 @@ export function Header() {
               >
                 Search
               </Link>
+              <Link
+                href="/authors"
+                onClick={() => setShowMobileMenu(false)}
+                className="px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+              >
+                Authors
+              </Link>
               {showBookDate && (
                 <Link
                   href="/bookdate"
@@ -300,6 +324,12 @@ export function Header() {
       <ChangePasswordModal
         isOpen={showChangePasswordModal}
         onClose={() => setShowChangePasswordModal(false)}
+      />
+
+      {/* Add Goodreads Shelf Modal */}
+      <AddGoodreadsShelfModal
+        isOpen={showAddGoodreadsModal}
+        onClose={() => setShowAddGoodreadsModal(false)}
       />
     </header>
   );

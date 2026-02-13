@@ -17,6 +17,7 @@ import { groupIndexersByCategories } from '@/lib/utils/indexer-grouping';
 import { findPlexMatch } from '@/lib/utils/audiobook-matcher';
 import { getAudibleService } from '@/lib/integrations/audible.service';
 import { RMABLogger } from '@/lib/utils/logger';
+import { resolveInteractiveSearchAccess } from '@/lib/utils/permissions';
 import {
   searchByAsin,
   searchByTitle,
@@ -83,6 +84,21 @@ export async function POST(
   return requireAuth(request, async (req: AuthenticatedRequest) => {
     try {
       const { asin } = await params;
+
+      // Check interactive search access permission
+      if (req.user) {
+        const callingUser = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: { role: true, interactiveSearchAccess: true },
+        });
+        if (!callingUser || !(await resolveInteractiveSearchAccess(callingUser.role, callingUser.interactiveSearchAccess))) {
+          return NextResponse.json(
+            { error: 'Forbidden', message: 'You do not have interactive search access. Contact your admin to enable this permission.' },
+            { status: 403 }
+          );
+        }
+      }
+
       const body = await request.json().catch(() => ({}));
       const customTitle = body.customTitle as string | undefined;
 
@@ -410,9 +426,14 @@ async function searchIndexersForInteractive(
   const flagConfigs = flagConfigStr ? JSON.parse(flagConfigStr) : [];
 
   // Group indexers by ebook categories
-  const groups = groupIndexersByCategories(indexersConfig, 'ebook');
+  const { groups, skippedIndexers } = groupIndexersByCategories(indexersConfig, 'ebook');
 
-  logger.info(`Searching ${indexersConfig.length} indexers in ${groups.length} group(s)`);
+  if (skippedIndexers.length > 0) {
+    const skippedNames = skippedIndexers.map(idx => idx.name).join(', ');
+    logger.info(`Skipping ${skippedIndexers.length} indexer(s) with no ebook categories: ${skippedNames}`);
+  }
+
+  logger.info(`Searching ${indexersConfig.length - skippedIndexers.length} indexers in ${groups.length} group(s)`);
 
   // Get Prowlarr service
   const prowlarr = await getProwlarrService();

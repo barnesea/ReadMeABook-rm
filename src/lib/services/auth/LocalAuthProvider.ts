@@ -150,7 +150,11 @@ export class LocalAuthProvider implements IAuthProvider {
         return { success: false, error: 'Username must be at least 3 characters' };
       }
 
-      if (!password || password.length < 8) {
+      const allowWeakPassword = process.env.ALLOW_WEAK_PASSWORD === 'true';
+      if (!password) {
+        return { success: false, error: 'Password is required' };
+      }
+      if (!allowWeakPassword && password.length < 8) {
         return { success: false, error: 'Password must be at least 8 characters' };
       }
 

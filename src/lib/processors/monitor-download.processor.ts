@@ -3,50 +3,13 @@
  * Documentation: documentation/phase3/README.md
  */
 
-import path from 'path';
 import { MonitorDownloadPayload, getJobQueueService } from '../services/job-queue.service';
 import { prisma } from '../db';
-import { getQBittorrentService } from '../integrations/qbittorrent.service';
 import { RMABLogger } from '../utils/logger';
 import { PathMapper, PathMappingConfig } from '../utils/path-mapper';
 import { getConfigService } from '../services/config.service';
 import { getDownloadClientManager } from '../services/download-client-manager.service';
-
-/**
- * Helper function to retry getTorrent with exponential backoff
- * Handles race condition where torrent isn't immediately available after adding
- */
-async function getTorrentWithRetry(
-  qbt: any,
-  hash: string,
-  logger: RMABLogger,
-  maxRetries: number = 3,
-  initialDelayMs: number = 500
-): Promise<any> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await qbt.getTorrent(hash);
-    } catch (error) {
-      lastError = error as Error;
-
-      // If this is the last attempt, throw the error
-      if (attempt === maxRetries - 1) {
-        break;
-      }
-
-      // Exponential backoff: 500ms, 1000ms, 2000ms
-      const delayMs = initialDelayMs * Math.pow(2, attempt);
-      logger.warn(`Torrent ${hash} not found, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-    }
-  }
-
-  // All retries failed
-  throw lastError || new Error('Failed to get torrent after retries');
-}
+import { CLIENT_PROTOCOL_MAP, DownloadClientType } from '../interfaces/download-client.interface';
 
 /**
  * Process monitor download job
@@ -59,57 +22,42 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
   const logger = RMABLogger.forJob(jobId, 'MonitorDownload');
 
   try {
-    let progress: any;
-    let downloadPath: string | undefined;
+    // Get the download client service via the manager
+    const configService = getConfigService();
+    const manager = getDownloadClientManager(configService);
+    const protocol = CLIENT_PROTOCOL_MAP[downloadClient as DownloadClientType];
+    if (!protocol) {
+      throw new Error(`Unknown download client type: ${downloadClient}`);
+    }
+    const client = await manager.getClientServiceForProtocol(protocol);
 
-    if (downloadClient === 'qbittorrent') {
-      // qBittorrent flow
-      const qbt = await getQBittorrentService();
+    if (!client) {
+      throw new Error(`No ${downloadClient} client configured`);
+    }
 
-      // Get torrent status with retry logic (handles race condition)
-      const torrent = await getTorrentWithRetry(qbt, downloadClientId, logger);
-      progress = qbt.getDownloadProgress(torrent);
+    // Get download status via unified interface
+    const info = await client.getDownload(downloadClientId);
 
-      // Store download path for later use
-      downloadPath = torrent.content_path || path.join(torrent.save_path, torrent.name);
-    } else if (downloadClient === 'sabnzbd') {
-      // SABnzbd flow
-      const { getSABnzbdService } = await import('../integrations/sabnzbd.service');
-      const sabnzbd = await getSABnzbdService();
+    if (!info) {
+      throw new Error(`Download ${downloadClientId} not found in ${downloadClient}`);
+    }
 
-      // Get NZB status
-      const nzbInfo = await sabnzbd.getNZB(downloadClientId);
+    // Build progress object for request updates
+    const progressPercent = Math.round(info.progress * 100);
+    const progressState = info.status;
 
-      if (!nzbInfo) {
-        throw new Error(`NZB ${downloadClientId} not found in SABnzbd queue or history`);
-      }
-
-      // Convert NZBInfo to progress format
-      progress = {
-        percent: nzbInfo.progress * 100, // Convert 0.0-1.0 to 0-100 (matches qBittorrent format)
-        bytesDownloaded: nzbInfo.size * nzbInfo.progress,
-        bytesTotal: nzbInfo.size,
-        speed: nzbInfo.downloadSpeed,
-        eta: nzbInfo.timeLeft,
-        state: nzbInfo.status,
-      };
-
-      // Store download path if available (only set after completion)
-      downloadPath = nzbInfo.downloadPath;
-
-      logger.info(`SABnzbd status: ${nzbInfo.status}`, {
-        progress: `${(nzbInfo.progress * 100).toFixed(1)}%`,
-        speed: `${(nzbInfo.downloadSpeed / 1024 / 1024).toFixed(2)} MB/s`,
+    if (client.protocol === 'usenet') {
+      logger.info(`${client.clientType} status: ${info.status}`, {
+        progress: `${(info.progress * 100).toFixed(1)}%`,
+        speed: `${(info.downloadSpeed / 1024 / 1024).toFixed(2)} MB/s`,
       });
-    } else {
-      throw new Error(`Download client ${downloadClient} not supported`);
     }
 
     // Update request progress
     await prisma.request.update({
       where: { id: requestId },
       data: {
-        progress: progress.percent,
+        progress: progressPercent,
         updatedAt: new Date(),
       },
     });
@@ -118,23 +66,21 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
     await prisma.downloadHistory.update({
       where: { id: downloadHistoryId },
       data: {
-        downloadStatus: progress.state,
+        downloadStatus: progressState,
       },
     });
 
     // Check download state
-    if (progress.state === 'completed') {
+    if (progressState === 'completed' || progressState === 'seeding') {
       logger.info(`Download completed for request ${requestId}`);
 
       // Ensure we have a download path
+      const downloadPath = info.downloadPath;
       if (!downloadPath) {
         throw new Error('Download path not available from download client');
       }
 
       // Get path mapping configuration from the specific download client
-      const configService = getConfigService();
-      const manager = getDownloadClientManager(configService);
-      const protocol = downloadClient === 'sabnzbd' ? 'usenet' : 'torrent';
       const clientConfig = await manager.getClientForProtocol(protocol);
 
       // Build path mapping config from client settings
@@ -150,17 +96,18 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
       const organizePath = PathMapper.transform(downloadPath, pathMappingConfig);
 
       logger.info(`Download completed`, {
-        downloadClient,
+        downloadClient: client.clientType,
         downloadPath,
         organizePath: organizePath !== downloadPath ? `${organizePath} (mapped)` : organizePath,
       });
 
-      // Update download history to completed
+      // Update download history to completed (store mapped path for retry reliability)
       await prisma.downloadHistory.update({
         where: { id: downloadHistoryId },
         data: {
           downloadStatus: 'completed',
           completedAt: new Date(),
+          downloadPath: organizePath,
         },
       });
 
@@ -197,10 +144,10 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
         progress: 100,
         downloadPath: organizePath,
       };
-    } else if (progress.state === 'failed') {
+    } else if (progressState === 'failed') {
       logger.error(`Download failed for request ${requestId}`);
 
-      const errorMessage = 'Download failed in qBittorrent';
+      const errorMessage = `Download failed in ${client.clientType}`;
 
       // Update request to failed
       await prisma.request.update({
@@ -249,7 +196,7 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
         completed: true,
         message: 'Download failed',
         requestId,
-        progress: progress.percent,
+        progress: progressPercent,
       };
     } else {
       // Still downloading - schedule another check in 10 seconds
@@ -263,11 +210,11 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
       );
 
       // Only log every 5% progress to reduce log spam
-      const shouldLog = progress.percent % 5 === 0 || progress.percent < 5;
+      const shouldLog = progressPercent % 5 === 0 || progressPercent < 5;
       if (shouldLog) {
-        logger.info(`Request ${requestId}: ${progress.percent}% complete (${progress.state})`, {
-          speed: progress.speed,
-          eta: progress.eta,
+        logger.info(`Request ${requestId}: ${progressPercent}% complete (${progressState})`, {
+          speed: info.downloadSpeed,
+          eta: info.eta,
         });
       }
 
@@ -276,20 +223,20 @@ export async function processMonitorDownload(payload: MonitorDownloadPayload): P
         completed: false,
         message: 'Download in progress, monitoring continues',
         requestId,
-        progress: progress.percent,
-        speed: progress.speed,
-        eta: progress.eta,
-        state: progress.state,
+        progress: progressPercent,
+        speed: info.downloadSpeed,
+        eta: info.eta,
+        state: progressState,
       };
     }
   } catch (error) {
     logger.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 
-    // Check if this is a transient "torrent not found" error
+    // Check if this is a transient "not found" error
     const errorMessage = error instanceof Error ? error.message : '';
-    const isTorrentNotFound = errorMessage.includes('not found') || errorMessage.includes('Torrent') && errorMessage.includes('not found');
+    const isNotFound = errorMessage.includes('not found');
 
-    if (isTorrentNotFound) {
+    if (isNotFound) {
       // Transient error - don't mark request as failed, let Bull retry
       // The request stays in 'downloading' status until Bull exhausts all retries
       logger.warn(`Transient error for request ${requestId}, allowing Bull to retry`);

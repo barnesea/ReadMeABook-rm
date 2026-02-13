@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import { Input } from './Input';
 import { Button } from './Button';
@@ -22,6 +22,24 @@ export function ChangePasswordModal({ isOpen, onClose }: ChangePasswordModalProp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [allowWeakPassword, setAllowWeakPassword] = useState(false);
+
+  // Fetch password policy when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchPolicy = async () => {
+      try {
+        const response = await fetch('/api/auth/providers');
+        if (response.ok) {
+          const data = await response.json();
+          setAllowWeakPassword(data.allowWeakPassword === true);
+        }
+      } catch {
+        // Default to strict validation on error
+      }
+    };
+    fetchPolicy();
+  }, [isOpen]);
 
   // Validation errors for individual fields
   const [errors, setErrors] = useState({
@@ -47,7 +65,7 @@ export function ChangePasswordModal({ isOpen, onClose }: ChangePasswordModalProp
     if (!newPassword) {
       newErrors.newPassword = 'New password is required';
       isValid = false;
-    } else if (newPassword.length < 8) {
+    } else if (!allowWeakPassword && newPassword.length < 8) {
       newErrors.newPassword = 'Password must be at least 8 characters';
       isValid = false;
     } else if (newPassword === currentPassword) {
@@ -211,7 +229,7 @@ export function ChangePasswordModal({ isOpen, onClose }: ChangePasswordModalProp
           }}
           placeholder="Enter your new password"
           autoComplete="new-password"
-          helperText="Must be at least 8 characters"
+          helperText={allowWeakPassword ? undefined : 'Must be at least 8 characters'}
           error={errors.newPassword}
           disabled={loading || success}
         />

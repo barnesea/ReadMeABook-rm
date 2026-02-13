@@ -34,13 +34,19 @@ vi.mock('@/lib/services/encryption.service', () => ({
   }),
 }));
 
-// Mock qBittorrent and SABnzbd services - use vi.hoisted to ensure they're available at mock time
-const { qbtServiceMock, sabServiceMock } = vi.hoisted(() => ({
+// Mock all 4 download client services - use vi.hoisted to ensure they're available at mock time
+const { qbtServiceMock, sabServiceMock, transmissionServiceMock, nzbgetServiceMock } = vi.hoisted(() => ({
   qbtServiceMock: {
     testConnection: vi.fn(),
   },
   sabServiceMock: {
-    getVersion: vi.fn(),
+    testConnection: vi.fn(),
+  },
+  transmissionServiceMock: {
+    testConnection: vi.fn(),
+  },
+  nzbgetServiceMock: {
+    testConnection: vi.fn(),
   },
 }));
 
@@ -53,7 +59,19 @@ vi.mock('@/lib/integrations/qbittorrent.service', () => ({
 
 vi.mock('@/lib/integrations/sabnzbd.service', () => ({
   SABnzbdService: class MockSABnzbdService {
-    getVersion = sabServiceMock.getVersion;
+    testConnection = sabServiceMock.testConnection;
+  },
+}));
+
+vi.mock('@/lib/integrations/transmission.service', () => ({
+  TransmissionService: class MockTransmissionService {
+    testConnection = transmissionServiceMock.testConnection;
+  },
+}));
+
+vi.mock('@/lib/integrations/nzbget.service', () => ({
+  NZBGetService: class MockNZBGetService {
+    testConnection = nzbgetServiceMock.testConnection;
   },
 }));
 
@@ -184,6 +202,58 @@ describe('DownloadClientManager', () => {
       expect(result).toEqual(clients[0]);
     });
 
+    it('returns Transmission client for torrent protocol', async () => {
+      const clients = [
+        {
+          id: 'client-1',
+          type: 'transmission',
+          name: 'Transmission',
+          enabled: true,
+          url: 'http://localhost:9091',
+          username: 'admin',
+          password: 'password',
+          disableSSLVerify: false,
+          remotePathMappingEnabled: false,
+          category: 'readmeabook',
+        },
+      ];
+
+      configMock.get.mockResolvedValue(JSON.stringify(clients));
+
+      const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
+      const manager = getDownloadClientManager(configMock as any);
+
+      const result = await manager.getClientForProtocol('torrent');
+
+      expect(result).toEqual(clients[0]);
+    });
+
+    it('returns NZBGet client for usenet protocol', async () => {
+      const clients = [
+        {
+          id: 'client-1',
+          type: 'nzbget',
+          name: 'NZBGet',
+          enabled: true,
+          url: 'http://localhost:6789',
+          username: 'nzbget',
+          password: 'tegbzn6789',
+          disableSSLVerify: false,
+          remotePathMappingEnabled: false,
+          category: 'readmeabook',
+        },
+      ];
+
+      configMock.get.mockResolvedValue(JSON.stringify(clients));
+
+      const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
+      const manager = getDownloadClientManager(configMock as any);
+
+      const result = await manager.getClientForProtocol('usenet');
+
+      expect(result).toEqual(clients[0]);
+    });
+
     it('returns null when no client configured for protocol', async () => {
       const clients = [
         {
@@ -293,7 +363,7 @@ describe('DownloadClientManager', () => {
 
   describe('testConnection', () => {
     it('successfully tests qBittorrent connection', async () => {
-      qbtServiceMock.testConnection.mockResolvedValue(undefined);
+      qbtServiceMock.testConnection.mockResolvedValue({ success: true, message: 'Connected' });
 
       const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
       const manager = getDownloadClientManager(configMock as any);
@@ -318,7 +388,7 @@ describe('DownloadClientManager', () => {
     });
 
     it('successfully tests SABnzbd connection', async () => {
-      sabServiceMock.getVersion.mockResolvedValue('3.5.0');
+      sabServiceMock.testConnection.mockResolvedValue({ success: true, version: '3.5.0', message: 'Connected' });
 
       const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
       const manager = getDownloadClientManager(configMock as any);
@@ -364,6 +434,56 @@ describe('DownloadClientManager', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toBe('Connection refused');
+    });
+
+    it('successfully tests NZBGet connection', async () => {
+      nzbgetServiceMock.testConnection.mockResolvedValue({ success: true, version: '24.2', message: 'Connected' });
+
+      const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
+      const manager = getDownloadClientManager(configMock as any);
+
+      const config = {
+        id: 'client-1',
+        type: 'nzbget' as const,
+        name: 'NZBGet',
+        enabled: true,
+        url: 'http://localhost:6789',
+        username: 'nzbget',
+        password: 'tegbzn6789',
+        disableSSLVerify: false,
+        remotePathMappingEnabled: false,
+        category: 'readmeabook',
+      };
+
+      const result = await manager.testConnection(config);
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Successfully connected to NZBGet (v24.2)');
+    });
+
+    it('successfully tests Transmission connection', async () => {
+      transmissionServiceMock.testConnection.mockResolvedValue({ success: true, version: '4.0.5', message: 'Connected' });
+
+      const { getDownloadClientManager } = await import('@/lib/services/download-client-manager.service');
+      const manager = getDownloadClientManager(configMock as any);
+
+      const config = {
+        id: 'client-1',
+        type: 'transmission' as const,
+        name: 'Transmission',
+        enabled: true,
+        url: 'http://localhost:9091',
+        username: 'admin',
+        password: 'password',
+        disableSSLVerify: false,
+        remotePathMappingEnabled: false,
+        category: 'readmeabook',
+      };
+
+      const result = await manager.testConnection(config);
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Successfully connected to Transmission (v4.0.5)');
     });
   });
 

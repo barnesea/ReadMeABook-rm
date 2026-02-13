@@ -27,7 +27,13 @@ import { AudibleRegion } from '@/lib/types/audible';
 interface SelectedIndexer {
   id: number;
   name: string;
+  protocol: string;
   priority: number;
+  seedingTimeMinutes?: number;
+  removeAfterProcessing?: boolean;
+  rssEnabled: boolean;
+  audiobookCategories: number[];
+  ebookCategories: number[];
 }
 
 interface SetupState {
@@ -86,6 +92,14 @@ interface SetupState {
   bookdateApiKey: string;
   bookdateModel: string;
   bookdateConfigured: boolean;
+
+  // Cached UI state for back-navigation persistence
+  plexLibraries: { id: string; title: string; type: string }[];
+  absLibraries: { id: string; name: string; itemCount: number }[];
+  oidcTested: boolean;
+  pathsTested: boolean;
+  bookdateModels: { id: string; name: string }[];
+
   validated: {
     plex: boolean;
     prowlarr: boolean;
@@ -152,6 +166,14 @@ export default function SetupWizard() {
     bookdateApiKey: '',
     bookdateModel: '',
     bookdateConfigured: false,
+
+    // Cached UI state for back-navigation persistence
+    plexLibraries: [],
+    absLibraries: [],
+    oidcTested: false,
+    pathsTested: false,
+    bookdateModels: [],
+
     validated: {
       plex: false,
       prowlarr: false,
@@ -379,6 +401,7 @@ export default function SetupWizard() {
             plexToken={state.plexToken}
             plexLibraryId={state.plexLibraryId}
             plexTriggerScanAfterImport={state.plexTriggerScanAfterImport}
+            plexLibraries={state.plexLibraries}
             onUpdate={updateField}
             onNext={() => goToStep(currentStepNumber + 1)}
             onBack={() => goToStep(currentStepNumber - 1)}
@@ -397,6 +420,7 @@ export default function SetupWizard() {
             absApiToken={state.absApiToken}
             absLibraryId={state.absLibraryId}
             absTriggerScanAfterImport={state.absTriggerScanAfterImport}
+            absLibraries={state.absLibraries}
             onUpdate={updateField}
             onNext={() => goToStep(currentStepNumber + 1)}
             onBack={() => goToStep(currentStepNumber - 1)}
@@ -435,6 +459,7 @@ export default function SetupWizard() {
               oidcAdminClaimEnabled={state.oidcAdminClaimEnabled}
               oidcAdminClaimName={state.oidcAdminClaimName}
               oidcAdminClaimValue={state.oidcAdminClaimValue}
+              oidcTested={state.oidcTested}
               onUpdate={updateField}
               onNext={() => goToStep(currentStepNumber + 1)}
               onBack={() => goToStep(currentStepNumber - 1)}
@@ -482,6 +507,7 @@ export default function SetupWizard() {
         <ProwlarrStep
           prowlarrUrl={state.prowlarrUrl}
           prowlarrApiKey={state.prowlarrApiKey}
+          prowlarrIndexers={state.prowlarrIndexers}
           onUpdate={updateField}
           onNext={() => goToStep(currentStepNumber + 1)}
           onBack={() => goToStep(currentStepNumber - 1)}
@@ -495,6 +521,7 @@ export default function SetupWizard() {
       return (
         <DownloadClientStep
           downloadClients={state.downloadClients}
+          downloadDir={state.downloadDir}
           onUpdate={updateField}
           onNext={() => goToStep(currentStepNumber + 1)}
           onBack={() => goToStep(currentStepNumber - 1)}
@@ -511,6 +538,7 @@ export default function SetupWizard() {
           mediaDir={state.mediaDir}
           metadataTaggingEnabled={state.metadataTaggingEnabled}
           chapterMergingEnabled={state.chapterMergingEnabled}
+          pathsTested={state.pathsTested}
           onUpdate={updateField}
           onNext={() => goToStep(currentStepNumber + 1)}
           onBack={() => goToStep(currentStepNumber - 1)}
@@ -527,6 +555,7 @@ export default function SetupWizard() {
           bookdateApiKey={state.bookdateApiKey}
           bookdateModel={state.bookdateModel}
           bookdateConfigured={state.bookdateConfigured}
+          bookdateModels={state.bookdateModels}
           onUpdate={updateField}
           onNext={() => goToStep(currentStepNumber + 1)}
           onSkip={() => goToStep(currentStepNumber + 1)}

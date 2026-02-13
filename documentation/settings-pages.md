@@ -36,7 +36,7 @@ src/app/admin/settings/
     │   ├── IndexersTab.tsx
     │   ├── useIndexersSettings.ts
     │   └── index.ts
-    ├── DownloadTab/              # qBittorrent/SABnzbd
+    ├── DownloadTab/              # qBittorrent/Transmission/SABnzbd
     │   ├── DownloadTab.tsx
     │   ├── useDownloadSettings.ts
     │   └── index.ts
@@ -67,7 +67,7 @@ src/app/admin/settings/
 1. **Plex** - URL, token (masked), library ID, Audible region, filesystem scan trigger toggle
 2. **Audiobookshelf** - URL, API token (masked), library ID, Audible region, filesystem scan trigger toggle
 3. **Prowlarr** - URL, API key (masked), indexer selection with priority, seeding time, RSS monitoring toggle, **audiobook/ebook categories per indexer**
-4. **Download Client** - Type, URL, credentials (masked)
+4. **Download Client** - Type (qBittorrent, Transmission, SABnzbd), URL, credentials (masked), custom download path (per-client relative sub-path with live preview)
 5. **Paths** - Download + media directories, audiobook organization template, metadata tagging toggle, chapter merging toggle
 6. **E-book Sidecar** - Multi-source ebook downloads (Anna's Archive + Indexer Search), preferred format
 7. **BookDate** - AI provider, API key (encrypted), model selection, library scope, custom prompt, swipe history
@@ -271,7 +271,7 @@ src/app/admin/settings/
 
 **PUT /api/admin/settings/audible**
 - Updates Audible region
-- Body: `{ region: string }` (one of: us, ca, uk, au, in)
+- Body: `{ region: string }` (one of: us, ca, uk, au, in, es)
 - No validation required
 
 **PUT /api/admin/settings/prowlarr/indexers**
@@ -324,7 +324,7 @@ src/app/admin/settings/
 
 **Plex:** Valid HTTP/HTTPS URL, non-empty token, library ID selected
 **Prowlarr:** Valid URL, non-empty API key, ≥1 indexer configured, priority 1-25, seedingTimeMinutes ≥0, rssEnabled boolean
-**Download Client:** Valid URL, credentials required, type must be 'qbittorrent' or 'transmission'
+**Download Client:** Valid URL, credentials required, type must be 'qbittorrent', 'transmission', or 'sabnzbd'
 **Paths:** Absolute paths, exist or creatable, writable, cannot be same directory, template must contain `{author}` or `{title}`
 
 ## Tech Stack

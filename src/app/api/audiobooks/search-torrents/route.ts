@@ -70,9 +70,14 @@ export async function POST(request: NextRequest) {
 
       // Group indexers by their category configuration
       // This minimizes API calls while ensuring each indexer only searches its configured categories
-      const groups = groupIndexersByCategories(indexersConfig);
+      const { groups, skippedIndexers } = groupIndexersByCategories(indexersConfig);
 
-      logger.info(`Searching ${indexersConfig.length} enabled indexers in ${groups.length} group${groups.length > 1 ? 's' : ''}`, { searchQuery: title });
+      if (skippedIndexers.length > 0) {
+        const skippedNames = skippedIndexers.map(idx => idx.name).join(', ');
+        logger.info(`Skipping ${skippedIndexers.length} indexer(s) with no audiobook categories: ${skippedNames}`);
+      }
+
+      logger.info(`Searching ${indexersConfig.length - skippedIndexers.length} enabled indexers in ${groups.length} group${groups.length > 1 ? 's' : ''}`, { searchQuery: title });
 
       // Log each group for transparency
       groups.forEach((group, index) => {
@@ -81,7 +86,6 @@ export async function POST(request: NextRequest) {
 
       // Search Prowlarr for each group and combine results
       const prowlarr = await getProwlarrService();
-      const searchQuery = title; // Title only - cast wide net
       const allResults = [];
 
       for (let i = 0; i < groups.length; i++) {
@@ -89,7 +93,7 @@ export async function POST(request: NextRequest) {
         logger.debug(`Searching group ${i + 1}/${groups.length}: ${getGroupDescription(group)}`);
 
         try {
-          const groupResults = await prowlarr.search(searchQuery, {
+          const groupResults = await prowlarr.searchWithVariations(title, author, {
             categories: group.categories,
             indexerIds: group.indexerIds,
             maxResults: 100, // Limit per group

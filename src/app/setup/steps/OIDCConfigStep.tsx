@@ -22,6 +22,7 @@ interface OIDCConfigStepProps {
   oidcAdminClaimEnabled: boolean;
   oidcAdminClaimName: string;
   oidcAdminClaimValue: string;
+  oidcTested: boolean;
   onUpdate: (field: string, value: any) => void;
   onNext: () => void;
   onBack: () => void;
@@ -40,6 +41,7 @@ export function OIDCConfigStep({
   oidcAdminClaimEnabled,
   oidcAdminClaimName,
   oidcAdminClaimValue,
+  oidcTested,
   onUpdate,
   onNext,
   onBack,
@@ -48,7 +50,11 @@ export function OIDCConfigStep({
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
-  } | null>(null);
+  } | null>(
+    oidcTested
+      ? { success: true, message: 'OIDC configuration verified previously.' }
+      : null
+  );
 
   const testConnection = async () => {
     setTesting(true);
@@ -72,17 +78,20 @@ export function OIDCConfigStep({
           success: true,
           message: 'OIDC discovery successful! Provider configuration validated.',
         });
+        onUpdate('oidcTested', true);
       } else {
         setTestResult({
           success: false,
           message: data.error || 'OIDC discovery failed',
         });
+        onUpdate('oidcTested', false);
       }
     } catch (error) {
       setTestResult({
         success: false,
         message: error instanceof Error ? error.message : 'Connection test failed',
       });
+      onUpdate('oidcTested', false);
     } finally {
       setTesting(false);
     }

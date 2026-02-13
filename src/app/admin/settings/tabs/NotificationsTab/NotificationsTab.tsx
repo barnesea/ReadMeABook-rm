@@ -3,8 +3,28 @@
 import { useState, useEffect } from 'react';
 import { RMABLogger } from '@/lib/utils/logger';
 import { fetchWithAuth } from '@/lib/utils/api';
+import { EVENT_LABELS } from '@/lib/constants/notification-events';
 
 const logger = RMABLogger.create('NotificationsTab');
+
+interface ProviderConfigField {
+  name: string;
+  label: string;
+  type: 'text' | 'password' | 'select' | 'number';
+  required: boolean;
+  placeholder?: string;
+  defaultValue?: string | number;
+  options?: { label: string; value: string | number }[];
+}
+
+interface ProviderMetadata {
+  type: string;
+  displayName: string;
+  description: string;
+  iconLabel: string;
+  iconColor: string;
+  configFields: ProviderConfigField[];
+}
 
 interface NotificationBackend {
   id: string;
@@ -24,24 +44,11 @@ interface ModalState {
   backend?: NotificationBackend;
 }
 
-const typeColors: Record<string, string> = {
-  discord: 'bg-indigo-500',
-  pushover: 'bg-blue-500',
-  email: 'bg-green-500',
-  slack: 'bg-purple-500',
-  telegram: 'bg-sky-500',
-  webhook: 'bg-gray-500',
-};
-
-const eventLabels: Record<string, string> = {
-  request_pending_approval: 'Request Pending Approval',
-  request_approved: 'Request Approved',
-  request_available: 'Audiobook Available',
-  request_error: 'Request Error',
-};
+const eventLabels: Record<string, string> = EVENT_LABELS;
 
 export function NotificationsTab() {
   const [backends, setBackends] = useState<NotificationBackend[]>([]);
+  const [providerMetadata, setProviderMetadata] = useState<ProviderMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalState, setModalState] = useState<ModalState>({
     isOpen: false,
@@ -59,7 +66,22 @@ export function NotificationsTab() {
 
   useEffect(() => {
     fetchBackends();
+    fetchProviderMetadata();
   }, []);
+
+  const fetchProviderMetadata = async () => {
+    try {
+      const response = await fetchWithAuth('/api/admin/notifications/providers');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setProviderMetadata(data.providers);
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to fetch provider metadata', { error: error instanceof Error ? error.message : String(error) });
+    }
+  };
 
   const fetchBackends = async () => {
     try {
@@ -83,11 +105,23 @@ export function NotificationsTab() {
     }
   };
 
+  const getMetadataForType = (type: string): ProviderMetadata | undefined => {
+    return providerMetadata.find((p) => p.type === type);
+  };
+
   const openAddModal = (type: string) => {
+    const meta = getMetadataForType(type);
+    const defaultConfig: Record<string, any> = {};
+    if (meta) {
+      for (const field of meta.configFields) {
+        defaultConfig[field.name] = field.defaultValue ?? '';
+      }
+    }
+
     setModalState({ isOpen: true, mode: 'add', selectedType: type });
     setFormData({
-      name: `${type.charAt(0).toUpperCase() + type.slice(1)} Notifications`,
-      config: type === 'discord' ? { webhookUrl: '', username: 'ReadMeABook', avatarUrl: '' } : { userKey: '', appToken: '', device: '', priority: 0 },
+      name: `${meta?.displayName ?? type} Notifications`,
+      config: defaultConfig,
       events: ['request_available', 'request_error'],
       enabled: true,
     });
@@ -193,6 +227,49 @@ export function NotificationsTab() {
     }
   };
 
+  const renderConfigField = (field: ProviderConfigField) => {
+    if (field.type === 'select' && field.options) {
+      return (
+        <div key={field.name}>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {field.label}{field.required ? ' *' : ''}
+          </label>
+          <select
+            value={formData.config[field.name] ?? field.defaultValue ?? ''}
+            onChange={(e) => {
+              const value = field.options?.some((o) => typeof o.value === 'number')
+                ? Number(e.target.value)
+                : e.target.value;
+              setFormData({ ...formData, config: { ...formData.config, [field.name]: value } });
+            }}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          >
+            {field.options.map((opt) => (
+              <option key={String(opt.value)} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+      );
+    }
+
+    return (
+      <div key={field.name}>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          {field.label}{field.required ? ' *' : field.label.includes('optional') ? '' : ' (optional)'}
+        </label>
+        <input
+          type={field.type === 'password' ? 'password' : 'text'}
+          value={formData.config[field.name] ?? ''}
+          onChange={(e) => setFormData({ ...formData, config: { ...formData.config, [field.name]: e.target.value } })}
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          placeholder={field.placeholder}
+        />
+      </div>
+    );
+  };
+
+  const currentMeta = modalState.selectedType ? getMetadataForType(modalState.selectedType) : undefined;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -206,32 +283,22 @@ export function NotificationsTab() {
       {/* Type Selector */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Notification Backend</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button
-            onClick={() => openAddModal('discord')}
-            className="flex items-center p-4 bg-white dark:bg-gray-800 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
-          >
-            <div className="flex-shrink-0 w-12 h-12 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-2xl">
-              D
-            </div>
-            <div className="ml-4 text-left">
-              <div className="font-semibold text-gray-900 dark:text-white">Discord</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Send notifications via Discord webhook</div>
-            </div>
-          </button>
-
-          <button
-            onClick={() => openAddModal('pushover')}
-            className="flex items-center p-4 bg-white dark:bg-gray-800 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
-          >
-            <div className="flex-shrink-0 w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-2xl">
-              P
-            </div>
-            <div className="ml-4 text-left">
-              <div className="font-semibold text-gray-900 dark:text-white">Pushover</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Send notifications via Pushover API</div>
-            </div>
-          </button>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {providerMetadata.map((meta) => (
+            <button
+              key={meta.type}
+              onClick={() => openAddModal(meta.type)}
+              className="flex items-center p-4 bg-white dark:bg-gray-800 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+            >
+              <div className={`flex-shrink-0 w-12 h-12 ${meta.iconColor} rounded-lg flex items-center justify-center text-white font-bold text-2xl`}>
+                {meta.iconLabel}
+              </div>
+              <div className="ml-4 text-left">
+                <div className="font-semibold text-gray-900 dark:text-white">{meta.displayName}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">{meta.description}</div>
+              </div>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -244,43 +311,46 @@ export function NotificationsTab() {
           <p className="text-gray-600 dark:text-gray-400">No notification backends configured.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {backends.map((backend) => (
-              <div key={backend.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-10 h-10 ${typeColors[backend.type]} rounded-lg flex items-center justify-center text-white font-bold`}>
-                      {backend.type.charAt(0).toUpperCase()}
+            {backends.map((backend) => {
+              const meta = getMetadataForType(backend.type);
+              return (
+                <div key={backend.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4 hover:shadow-lg transition-shadow">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-10 h-10 ${meta?.iconColor ?? 'bg-gray-500'} rounded-lg flex items-center justify-center text-white font-bold`}>
+                        {meta?.iconLabel ?? backend.type.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900 dark:text-white truncate">{backend.name}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{meta?.displayName ?? backend.type}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="font-semibold text-gray-900 dark:text-white truncate">{backend.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">{backend.type}</div>
+                  </div>
+                  <div className="space-y-2 mb-3">
+                    <div className={`inline-block px-2 py-1 rounded text-xs ${backend.enabled ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
+                      {backend.enabled ? 'Enabled' : 'Disabled'}
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                      {backend.events.length} {backend.events.length === 1 ? 'event' : 'events'} subscribed
                     </div>
                   </div>
-                </div>
-                <div className="space-y-2 mb-3">
-                  <div className={`inline-block px-2 py-1 rounded text-xs ${backend.enabled ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
-                    {backend.enabled ? 'Enabled' : 'Disabled'}
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => openEditModal(backend)}
+                      className="flex-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(backend.id)}
+                      className="flex-1 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                    >
+                      Delete
+                    </button>
                   </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">
-                    {backend.events.length} {backend.events.length === 1 ? 'event' : 'events'} subscribed
-                  </div>
                 </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => openEditModal(backend)}
-                    className="flex-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(backend.id)}
-                    className="flex-1 px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -292,7 +362,7 @@ export function NotificationsTab() {
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  {modalState.mode === 'add' ? 'Add' : 'Edit'} {modalState.selectedType.charAt(0).toUpperCase() + modalState.selectedType.slice(1)} Notification
+                  {modalState.mode === 'add' ? 'Add' : 'Edit'} {currentMeta?.displayName ?? modalState.selectedType} Notification
                 </h3>
                 <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -314,70 +384,8 @@ export function NotificationsTab() {
                   />
                 </div>
 
-                {/* Config Fields */}
-                {modalState.selectedType === 'discord' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook URL *</label>
-                      <input
-                        type="text"
-                        value={formData.config.webhookUrl}
-                        onChange={(e) => setFormData({ ...formData, config: { ...formData.config, webhookUrl: e.target.value } })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="https://discord.com/api/webhooks/..."
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username (optional)</label>
-                      <input
-                        type="text"
-                        value={formData.config.username}
-                        onChange={(e) => setFormData({ ...formData, config: { ...formData.config, username: e.target.value } })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="ReadMeABook"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {modalState.selectedType === 'pushover' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">User Key *</label>
-                      <input
-                        type="text"
-                        value={formData.config.userKey}
-                        onChange={(e) => setFormData({ ...formData, config: { ...formData.config, userKey: e.target.value } })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="Your Pushover user key"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">App Token *</label>
-                      <input
-                        type="text"
-                        value={formData.config.appToken}
-                        onChange={(e) => setFormData({ ...formData, config: { ...formData.config, appToken: e.target.value } })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="Your Pushover app token"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
-                      <select
-                        value={formData.config.priority}
-                        onChange={(e) => setFormData({ ...formData, config: { ...formData.config, priority: Number(e.target.value) } })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      >
-                        <option value="-2">Lowest</option>
-                        <option value="-1">Low</option>
-                        <option value="0">Normal</option>
-                        <option value="1">High</option>
-                        <option value="2">Emergency</option>
-                      </select>
-                    </div>
-                  </>
-                )}
+                {/* Dynamic Config Fields */}
+                {currentMeta?.configFields.map((field) => renderConfigField(field))}
 
                 {/* Events */}
                 <div>

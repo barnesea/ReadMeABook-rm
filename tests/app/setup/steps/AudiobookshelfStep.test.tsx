@@ -24,6 +24,7 @@ const AudiobookshelfHarness = ({
     absApiToken: 'token',
     absLibraryId: '',
     absTriggerScanAfterImport: false,
+    absLibraries: [] as { id: string; name: string; itemCount: number }[],
     ...initialState,
   });
 

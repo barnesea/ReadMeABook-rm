@@ -4,12 +4,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NotificationEvent } from '@/lib/constants/notification-events';
 
 const notificationServiceMock = vi.hoisted(() => ({
   sendNotification: vi.fn(),
 }));
 
-vi.mock('@/lib/services/notification.service', () => ({
+vi.mock('@/lib/services/notification', () => ({
   getNotificationService: () => notificationServiceMock,
 }));
 
@@ -70,6 +71,33 @@ describe('processSendNotification', () => {
     });
   });
 
+  it('forwards requestType to notification service', async () => {
+    const { processSendNotification } = await import('@/lib/processors/send-notification.processor');
+
+    const payload = {
+      event: 'request_available' as const,
+      requestId: 'req-1',
+      title: 'Test Book',
+      author: 'Test Author',
+      userName: 'Test User',
+      requestType: 'ebook',
+      timestamp: new Date('2024-01-01T00:00:00Z'),
+      jobId: 'job-1',
+    };
+
+    await processSendNotification(payload);
+
+    expect(notificationServiceMock.sendNotification).toHaveBeenCalledWith({
+      event: 'request_available',
+      requestId: 'req-1',
+      title: 'Test Book',
+      author: 'Test Author',
+      userName: 'Test User',
+      requestType: 'ebook',
+      timestamp: expect.any(Date),
+    });
+  });
+
   it('does not throw if notification service fails', async () => {
     notificationServiceMock.sendNotification.mockRejectedValue(new Error('Service error'));
 
@@ -92,7 +120,7 @@ describe('processSendNotification', () => {
   it('processes all event types correctly', async () => {
     const { processSendNotification } = await import('@/lib/processors/send-notification.processor');
 
-    const events: Array<'request_pending_approval' | 'request_approved' | 'request_available' | 'request_error'> = [
+    const events: NotificationEvent[] = [
       'request_pending_approval',
       'request_approved',
       'request_available',

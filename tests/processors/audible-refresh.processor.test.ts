@@ -3,7 +3,7 @@
  * Documentation: documentation/backend/services/scheduler.md
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrismaMock } from '../helpers/prisma';
 
 const prismaMock = createPrismaMock();
@@ -29,8 +29,20 @@ vi.mock('@/lib/services/thumbnail-cache.service', () => ({
 }));
 
 describe('processAudibleRefresh', () => {
+  let origSetTimeout: typeof global.setTimeout;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    origSetTimeout = global.setTimeout;
+    // Replace setTimeout so the batch cooldown resolves instantly
+    global.setTimeout = ((fn: (...args: any[]) => void) => {
+      fn();
+      return 0 as ReturnType<typeof setTimeout>;
+    }) as any;
+  });
+
+  afterEach(() => {
+    global.setTimeout = origSetTimeout;
   });
 
   it('refreshes popular and new releases, caching thumbnails', async () => {
@@ -110,5 +122,3 @@ describe('processAudibleRefresh', () => {
     await expect(processAudibleRefresh({ jobId: 'job-2' })).rejects.toThrow('DB down');
   });
 });
-
-

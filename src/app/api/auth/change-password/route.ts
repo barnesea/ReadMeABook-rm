@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
       }
 
       // Validate new password length
-      if (newPassword.length < 8) {
+      const allowWeakPassword = process.env.ALLOW_WEAK_PASSWORD === 'true';
+      if (!allowWeakPassword && newPassword.length < 8) {
         return NextResponse.json(
           {
             success: false,

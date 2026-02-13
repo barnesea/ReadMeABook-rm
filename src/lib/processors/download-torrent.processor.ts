@@ -5,8 +5,6 @@
 
 import { DownloadTorrentPayload, getJobQueueService } from '../services/job-queue.service';
 import { prisma } from '../db';
-import { getQBittorrentService } from '../integrations/qbittorrent.service';
-import { getSABnzbdService } from '../integrations/sabnzbd.service';
 import { getConfigService } from '../services/config.service';
 import { getDownloadClientManager } from '../services/download-client-manager.service';
 import { ProwlarrService } from '../integrations/prowlarr.service';
@@ -14,7 +12,7 @@ import { RMABLogger } from '../utils/logger';
 
 /**
  * Process download job
- * Routes to appropriate download client based on configuration
+ * Routes to appropriate download client based on protocol detection
  * Adds selected result to download client and starts monitoring
  */
 export async function processDownloadTorrent(payload: DownloadTorrentPayload): Promise<any> {
@@ -41,151 +39,85 @@ export async function processDownloadTorrent(payload: DownloadTorrentPayload): P
       },
     });
 
-    // Detect protocol from result and route to appropriate client
+    // Detect protocol from result and get appropriate client
     const isUsenet = ProwlarrService.isNZBResult(torrent);
+    const protocol = isUsenet ? 'usenet' : 'torrent';
     const config = await getConfigService();
     const manager = getDownloadClientManager(config);
 
-    const clientConfig = await manager.getClientForProtocol(isUsenet ? 'usenet' : 'torrent');
+    const client = await manager.getClientServiceForProtocol(protocol);
 
-    if (!clientConfig) {
-      const protocol = isUsenet ? 'Usenet (SABnzbd)' : 'Torrent (qBittorrent)';
-      throw new Error(`No ${protocol} client configured`);
+    if (!client) {
+      throw new Error(`No ${protocol} download client configured. Please add a ${protocol} client in Settings > Download Clients.`);
     }
 
-    let downloadClientId: string;
-    let downloadClient: 'qbittorrent' | 'sabnzbd';
+    // Get client config for category
+    const clientConfig = await manager.getClientForProtocol(protocol);
+    const category = clientConfig?.category || 'readmeabook';
 
-    if (isUsenet) {
-      // Route to SABnzbd
-      logger.info(`Routing to SABnzbd`);
+    logger.info(`Routing to ${client.clientType} (${client.protocol})`);
 
-      const sabnzbd = await getSABnzbdService();
-      downloadClientId = await sabnzbd.addNZB(torrent.downloadUrl, {
-        category: clientConfig.category || 'readmeabook',
-        priority: 'normal',
-      });
-      downloadClient = 'sabnzbd';
+    // Add download via unified interface
+    const downloadClientId = await client.addDownload(torrent.downloadUrl, {
+      category,
+      priority: 'normal',
+    });
 
-      logger.info(`NZB added with ID: ${downloadClientId}`);
+    logger.info(`Download added with ID: ${downloadClientId}`);
 
-      // Create DownloadHistory record
-      // Determine indexer page URL - exclude magnet links from guid fallback
-      const indexerPageUrl = torrent.infoUrl || (torrent.guid?.startsWith('magnet:') ? null : torrent.guid);
+    // Create DownloadHistory record
+    // Determine indexer page URL - exclude magnet links from guid fallback
+    const indexerPageUrl = torrent.infoUrl || (torrent.guid?.startsWith('magnet:') ? null : torrent.guid);
 
-      const downloadHistory = await prisma.downloadHistory.create({
-        data: {
-          requestId,
-          indexerName: torrent.indexer,
-          indexerId: torrent.indexerId, // Store indexer ID for configuration lookup
-          downloadClient: 'sabnzbd',
-          downloadClientId,
-          torrentName: torrent.title,
-          nzbId: downloadClientId, // Store NZB ID
-          torrentSizeBytes: torrent.size,
-          torrentUrl: indexerPageUrl, // Indexer page URL (only if available and not a magnet/download link)
-          magnetLink: torrent.downloadUrl, // Download URL (.nzb file)
-          seeders: torrent.seeders || 0, // Usenet doesn't have seeders, but include for consistency
-          leechers: 0,
-          downloadStatus: 'downloading',
-          selected: true,
-          startedAt: new Date(),
-        },
-      });
-
-      logger.info(`Created download history record: ${downloadHistory.id}`);
-
-      // Trigger monitor download job with initial delay
-      const jobQueue = getJobQueueService();
-      await jobQueue.addMonitorJob(
+    const downloadHistory = await prisma.downloadHistory.create({
+      data: {
         requestId,
-        downloadHistory.id,
+        indexerName: torrent.indexer,
+        indexerId: torrent.indexerId,
+        downloadClient: client.clientType,
         downloadClientId,
-        'sabnzbd',
-        3 // Wait 3 seconds before first check
-      );
+        torrentName: torrent.title,
+        // Set protocol-specific ID fields for backward compatibility
+        torrentHash: client.protocol === 'torrent' ? (torrent.infoHash || downloadClientId) : undefined,
+        nzbId: client.protocol === 'usenet' ? downloadClientId : undefined,
+        torrentSizeBytes: torrent.size,
+        torrentUrl: indexerPageUrl,
+        magnetLink: torrent.downloadUrl,
+        seeders: torrent.seeders || 0,
+        leechers: torrent.leechers || 0,
+        downloadStatus: 'downloading',
+        selected: true,
+        startedAt: new Date(),
+      },
+    });
 
-      logger.info(`Started monitoring job for request ${requestId} (SABnzbd, 3s initial delay)`);
+    logger.info(`Created download history record: ${downloadHistory.id}`);
 
-      return {
-        success: true,
-        message: 'NZB added to SABnzbd and monitoring started',
-        requestId,
-        downloadHistoryId: downloadHistory.id,
-        nzbId: downloadClientId,
-        torrent: {
-          title: torrent.title,
-          size: torrent.size,
-          format: torrent.format,
-        },
-      };
-    } else {
-      // Route to qBittorrent (default)
-      logger.info(`Routing to qBittorrent`);
+    // Trigger monitor download job with initial delay
+    const jobQueue = getJobQueueService();
+    await jobQueue.addMonitorJob(
+      requestId,
+      downloadHistory.id,
+      downloadClientId,
+      client.clientType,
+      3 // Wait 3 seconds before first check
+    );
 
-      const qbt = await getQBittorrentService();
-      downloadClientId = await qbt.addTorrent(torrent.downloadUrl, {
-        category: clientConfig.category || 'readmeabook',
-        tags: ['audiobook'],
-        sequentialDownload: true,
-        paused: false,
-      });
-      downloadClient = 'qbittorrent';
+    logger.info(`Started monitoring job for request ${requestId} (${client.clientType}, 3s initial delay)`);
 
-      logger.info(`Torrent added with hash: ${downloadClientId}`);
-
-      // Create DownloadHistory record
-      // Determine indexer page URL - exclude magnet links from guid fallback
-      const indexerPageUrl = torrent.infoUrl || (torrent.guid?.startsWith('magnet:') ? null : torrent.guid);
-
-      const downloadHistory = await prisma.downloadHistory.create({
-        data: {
-          requestId,
-          indexerName: torrent.indexer,
-          indexerId: torrent.indexerId, // Store indexer ID for configuration lookup
-          downloadClient: 'qbittorrent',
-          downloadClientId,
-          torrentName: torrent.title,
-          torrentHash: torrent.infoHash || downloadClientId, // Store torrent hash
-          torrentSizeBytes: torrent.size,
-          torrentUrl: indexerPageUrl, // Indexer page URL (only if available and not a magnet/download link)
-          magnetLink: torrent.downloadUrl,
-          seeders: torrent.seeders || 0,
-          leechers: torrent.leechers || 0,
-          downloadStatus: 'downloading',
-          selected: true,
-          startedAt: new Date(),
-        },
-      });
-
-      logger.info(`Created download history record: ${downloadHistory.id}`);
-
-      // Trigger monitor download job with initial delay
-      const jobQueue = getJobQueueService();
-      await jobQueue.addMonitorJob(
-        requestId,
-        downloadHistory.id,
-        downloadClientId,
-        'qbittorrent',
-        3 // Wait 3 seconds before first check to avoid race condition
-      );
-
-      logger.info(`Started monitoring job for request ${requestId} (qBittorrent, 3s initial delay)`);
-
-      return {
-        success: true,
-        message: 'Torrent added to qBittorrent and monitoring started',
-        requestId,
-        downloadHistoryId: downloadHistory.id,
-        torrentHash: downloadClientId,
-        torrent: {
-          title: torrent.title,
-          size: torrent.size,
-          seeders: torrent.seeders || 0,
-          format: torrent.format,
-        },
-      };
-    }
+    return {
+      success: true,
+      message: `Download added to ${client.clientType} and monitoring started`,
+      requestId,
+      downloadHistoryId: downloadHistory.id,
+      downloadClientId,
+      torrent: {
+        title: torrent.title,
+        size: torrent.size,
+        seeders: torrent.seeders || 0,
+        format: torrent.format,
+      },
+    };
   } catch (error) {
     logger.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 

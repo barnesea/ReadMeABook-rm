@@ -83,6 +83,7 @@ describe('Notification Triggers - Integration Tests', () => {
         id: 'user-1',
         role: 'user',
         autoApproveRequests: false,
+        plexUsername: 'testuser',
       });
 
       prismaMock.request.create.mockResolvedValue({
@@ -150,6 +151,7 @@ describe('Notification Triggers - Integration Tests', () => {
         id: 'user-1',
         role: 'user',
         autoApproveRequests: true,
+        plexUsername: 'testuser',
       });
 
       prismaMock.request.create.mockResolvedValue({
@@ -213,6 +215,7 @@ describe('Notification Triggers - Integration Tests', () => {
         id: 'user-1',
         role: 'user',
         autoApproveRequests: true,
+        plexUsername: 'testuser',
       });
 
       prismaMock.request.create.mockResolvedValue({

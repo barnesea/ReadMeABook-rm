@@ -68,6 +68,32 @@ describe('Change password route', () => {
     expect(payload.error).toMatch(/at least 8 characters/i);
   });
 
+  it('allows short passwords when ALLOW_WEAK_PASSWORD is enabled', async () => {
+    process.env.ALLOW_WEAK_PASSWORD = 'true';
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      authProvider: 'local',
+      authToken: 'enc-hash',
+      plexId: 'local-user',
+      plexUsername: 'user',
+    });
+    encryptionMock.decrypt.mockReturnValue('hash');
+    bcryptMock.compare.mockResolvedValue(true);
+    bcryptMock.hash.mockResolvedValue('new-hash');
+    encryptionMock.encrypt.mockReturnValue('enc-new-hash');
+    prismaMock.user.update.mockResolvedValue({});
+    const { POST } = await import('@/app/api/auth/change-password/route');
+
+    const response = await POST(
+      makeRequest({ currentPassword: 'oldpass', newPassword: 'ab', confirmPassword: 'ab' }) as any
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.success).toBe(true);
+    delete process.env.ALLOW_WEAK_PASSWORD;
+  });
+
   it('blocks non-local users', async () => {
     prismaMock.user.findUnique.mockResolvedValue({
       id: 'user-1',

@@ -27,7 +27,7 @@ describe('ChangePasswordModal', () => {
   });
 
   it('rejects submission when access token is missing', async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<ChangePasswordModal isOpen onClose={vi.fn()} />);
@@ -48,7 +48,8 @@ describe('ChangePasswordModal', () => {
       expect(screen.getByText('Not authenticated')).toBeInTheDocument();
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Only the password policy fetch should have fired (useEffect on mount), not a password change call
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/auth/change-password', expect.anything());
   });
 
   it('submits successfully and auto-closes after showing success', async () => {

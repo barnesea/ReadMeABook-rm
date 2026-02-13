@@ -41,8 +41,24 @@ describe('generateFilesHash', () => {
         '/path/Chapter 04.mp4',
         '/path/Chapter 05.aa',
         '/path/Chapter 06.aax',
+        '/path/Chapter 07.flac',
+        '/path/Chapter 08.ogg',
       ];
       const hash = generateFilesHash(filePaths);
+      expect(hash).toBeTruthy();
+      expect(hash.length).toBe(64);
+    });
+
+    it('should include FLAC files in hash generation', () => {
+      const withFlac = ['/path/Chapter 01.flac', '/path/Chapter 02.flac'];
+      const hash = generateFilesHash(withFlac);
+      expect(hash).toBeTruthy();
+      expect(hash.length).toBe(64);
+    });
+
+    it('should include OGG files in hash generation', () => {
+      const withOgg = ['/path/Chapter 01.ogg', '/path/Chapter 02.ogg'];
+      const hash = generateFilesHash(withOgg);
       expect(hash).toBeTruthy();
       expect(hash.length).toBe(64);
     });

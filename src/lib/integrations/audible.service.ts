@@ -8,14 +8,29 @@ import * as cheerio from 'cheerio';
 import { RMABLogger } from '../utils/logger';
 import { getConfigService } from '../services/config.service';
 import { AudibleRegion, AUDIBLE_REGIONS, DEFAULT_AUDIBLE_REGION } from '../types/audible';
+import {
+  pickUserAgent,
+  getBrowserHeaders,
+  jitteredBackoff,
+  AdaptivePacer,
+  FetchResultMeta,
+} from '../utils/scrape-resilience';
 
 // Module-level logger
 const logger = RMABLogger.create('Audible');
+
+/**
+ * Audible supports a pageSize query parameter (default ~20).
+ * Using 50 significantly reduces the number of HTTP requests needed
+ * for bulk operations like popular/new-release refreshes and search.
+ */
+const AUDIBLE_PAGE_SIZE = 50;
 
 export interface AudibleAudiobook {
   asin: string;
   title: string;
   author: string;
+  authorAsin?: string;
   narrator?: string;
   description?: string;
   coverArtUrl?: string;
@@ -40,9 +55,18 @@ export class AudibleService {
   private baseUrl: string = 'https://www.audible.com';
   private region: AudibleRegion = 'us';
   private initialized: boolean = false;
+  private sessionUserAgent: string = '';
+  private pacer: AdaptivePacer = new AdaptivePacer();
 
   constructor() {
     // Client will be created lazily on first use
+  }
+
+  /**
+   * Get the current Audible base URL for the configured region
+   */
+  public getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   /**
@@ -77,18 +101,16 @@ export class AudibleService {
       const configService = getConfigService();
       this.region = await configService.getAudibleRegion();
       this.baseUrl = AUDIBLE_REGIONS[this.region].baseUrl;
+      this.sessionUserAgent = pickUserAgent();
+      this.pacer.reset();
 
       logger.info(`Initializing Audible service with region: ${this.region} (${this.baseUrl})`);
 
-      // Create axios client with region-specific base URL
+      // Create axios client with region-specific base URL and realistic browser headers
       this.client = axios.create({
         baseURL: this.baseUrl,
         timeout: 15000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
+        headers: getBrowserHeaders(this.sessionUserAgent),
         params: {
           ipRedirectOverride: 'true', // Prevent IP-based region redirects
           language: 'english', // Force English locale (prevents IP-based language serving for non-English IPs)
@@ -101,14 +123,12 @@ export class AudibleService {
       // Fallback to default region
       this.region = DEFAULT_AUDIBLE_REGION;
       this.baseUrl = AUDIBLE_REGIONS[this.region].baseUrl;
+      this.sessionUserAgent = pickUserAgent();
+      this.pacer.reset();
       this.client = axios.create({
         baseURL: this.baseUrl,
         timeout: 15000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
+        headers: getBrowserHeaders(this.sessionUserAgent),
         params: {
           ipRedirectOverride: 'true',
           language: 'english',
@@ -119,23 +139,28 @@ export class AudibleService {
   }
 
   /**
-   * Fetch with retry logic and exponential backoff
-   * Retries on network errors and rate limiting (503, 429)
+   * Fetch with retry logic and jittered exponential backoff.
+   * Returns the axios response plus metadata about retries encountered.
    */
   private async fetchWithRetry(
     url: string,
     config: any = {},
     maxRetries: number = 5
-  ): Promise<any> {
+  ): Promise<{ data: any; meta: FetchResultMeta }> {
     let lastError: Error | null = null;
+    let retriesUsed = 0;
+    let encountered503 = false;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        return await this.client.get(url, config);
+        const response = await this.client.get(url, config);
+        return { data: response, meta: { retriesUsed, encountered503 } };
       } catch (error: any) {
         lastError = error;
         const status = error.response?.status;
         const isRetryable = !status || status === 503 || status === 429 || status >= 500;
+
+        if (status === 503) encountered503 = true;
 
         // Don't retry on 404, 403, etc.
         if (!isRetryable) {
@@ -147,8 +172,10 @@ export class AudibleService {
           break;
         }
 
-        // Exponential backoff: 2^attempt * 1000ms (1s, 2s, 4s, 8s...)
-        const backoffMs = Math.pow(2, attempt) * 1000;
+        retriesUsed++;
+
+        // Jittered exponential backoff instead of predictable doubling
+        const backoffMs = jitteredBackoff(attempt);
         logger.info(` Request failed (${status || 'network error'}), retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
 
         await this.delay(backoffMs);
@@ -210,15 +237,18 @@ export class AudibleService {
 
     const audiobooks: AudibleAudiobook[] = [];
     let page = 1;
-    const maxPages = Math.ceil(limit / 20); // Audible shows ~20 items per page
+    const maxPages = Math.ceil(limit / AUDIBLE_PAGE_SIZE);
+
+    this.pacer.reset();
 
     while (audiobooks.length < limit && page <= maxPages) {
       try {
         logger.info(` Fetching page ${page}/${maxPages}...`);
 
-        const response = await this.fetchWithRetry('/adblbestsellers', {
+        const { data: response, meta } = await this.fetchWithRetry('/adblbestsellers', {
           params: {
             ipRedirectOverride: 'true', // Explicitly include to prevent IP-based region redirects
+            pageSize: AUDIBLE_PAGE_SIZE,
             ...(page > 1 ? { page } : {}),
           },
         });
@@ -247,6 +277,10 @@ export class AudibleService {
           const authorText = $el.find('.authorLabel').text().trim() ||
                              $el.find('.bc-size-small .bc-text-bold').first().text().trim();
 
+          // Extract author ASIN from author link if available
+          const authorHref = $el.find('a[href*="/author/"]').first().attr('href') || '';
+          const authorAsinMatch = authorHref.match(/\/author\/[^\/]+\/([A-Z0-9]{10})/);
+
           const narratorText = $el.find('.narratorLabel').text().trim() ||
                                $el.find('.bc-size-small .bc-text-bold').eq(1).text().trim();
 
@@ -259,6 +293,7 @@ export class AudibleService {
             asin,
             title,
             author: authorText.replace('By:', '').replace('Written by:', '').trim(),
+            authorAsin: authorAsinMatch?.[1] || undefined,
             narrator: narratorText.replace('Narrated by:', '').trim(),
             coverArtUrl: coverArtUrl.replace(/\._.*_\./, '._SL500_.'),
             rating,
@@ -269,17 +304,17 @@ export class AudibleService {
 
         logger.info(` Found ${foundOnPage} audiobooks on page ${page}`);
 
-        // If we got fewer than expected, probably no more pages
-        if (foundOnPage < 10) {
+        // If we got significantly fewer than requested, probably no more pages
+        if (foundOnPage < AUDIBLE_PAGE_SIZE / 2) {
           logger.info(` Reached end of available pages`);
           break;
         }
 
         page++;
 
-        // Add delay between pages to respect rate limiting
+        // Adaptive delay between pages based on retry pressure
         if (page <= maxPages && audiobooks.length < limit) {
-          await this.delay(1500);
+          await this.delay(this.pacer.reportPageResult(meta));
         }
       } catch (error) {
         logger.error(`Failed to fetch page ${page} of popular audiobooks`, {
@@ -305,15 +340,18 @@ export class AudibleService {
 
     const audiobooks: AudibleAudiobook[] = [];
     let page = 1;
-    const maxPages = Math.ceil(limit / 20); // Audible shows ~20 items per page
+    const maxPages = Math.ceil(limit / AUDIBLE_PAGE_SIZE);
+
+    this.pacer.reset();
 
     while (audiobooks.length < limit && page <= maxPages) {
       try {
         logger.info(` Fetching page ${page}/${maxPages}...`);
 
-        const response = await this.fetchWithRetry('/newreleases', {
+        const { data: response, meta } = await this.fetchWithRetry('/newreleases', {
           params: {
             ipRedirectOverride: 'true', // Explicitly include to prevent IP-based region redirects
+            pageSize: AUDIBLE_PAGE_SIZE,
             ...(page > 1 ? { page } : {}),
           },
         });
@@ -342,6 +380,10 @@ export class AudibleService {
           const authorText = $el.find('.authorLabel').text().trim() ||
                              $el.find('.bc-size-small .bc-text-bold').first().text().trim();
 
+          // Extract author ASIN from author link if available
+          const authorHref = $el.find('a[href*="/author/"]').first().attr('href') || '';
+          const authorAsinMatch = authorHref.match(/\/author\/[^\/]+\/([A-Z0-9]{10})/);
+
           const narratorText = $el.find('.narratorLabel').text().trim();
 
           const coverArtUrl = $el.find('img').attr('src') || '';
@@ -353,6 +395,7 @@ export class AudibleService {
             asin,
             title,
             author: authorText.replace('By:', '').replace('Written by:', '').trim(),
+            authorAsin: authorAsinMatch?.[1] || undefined,
             narrator: narratorText.replace('Narrated by:', '').trim(),
             coverArtUrl: coverArtUrl.replace(/\._.*_\./, '._SL500_.'),
             rating,
@@ -363,17 +406,17 @@ export class AudibleService {
 
         logger.info(` Found ${foundOnPage} audiobooks on page ${page}`);
 
-        // If we got fewer than expected, probably no more pages
-        if (foundOnPage < 10) {
+        // If we got significantly fewer than requested, probably no more pages
+        if (foundOnPage < AUDIBLE_PAGE_SIZE / 2) {
           logger.info(` Reached end of available pages`);
           break;
         }
 
         page++;
 
-        // Add delay between pages to respect rate limiting
+        // Adaptive delay between pages based on retry pressure
         if (page <= maxPages && audiobooks.length < limit) {
-          await this.delay(1500);
+          await this.delay(this.pacer.reportPageResult(meta));
         }
       } catch (error) {
         logger.error(`Failed to fetch page ${page} of new releases`, {
@@ -398,10 +441,11 @@ export class AudibleService {
     try {
       logger.info(` Searching for "${query}"...`);
 
-      const response = await this.fetchWithRetry('/search', {
+      const { data: response } = await this.fetchWithRetry('/search', {
         params: {
           ipRedirectOverride: 'true', // Explicitly include to prevent IP-based region redirects
           keywords: query,
+          pageSize: AUDIBLE_PAGE_SIZE,
           page,
         },
       });
@@ -428,9 +472,14 @@ export class AudibleService {
                       $el.find('.bc-heading a').text().trim();
 
         // Extract author from author link
-        const authorText = $el.find('a[href*="/author/"]').first().text().trim() ||
+        const authorLink = $el.find('a[href*="/author/"]').first();
+        const authorText = authorLink.text().trim() ||
                            $el.find('.authorLabel').text().trim() ||
                            $el.find('.bc-size-small .bc-text-bold').first().text().trim();
+
+        // Extract author ASIN from author link href
+        const authorHref = authorLink.attr('href') || '';
+        const authorAsinMatch = authorHref.match(/\/author\/[^\/]+\/([A-Z0-9]{10})/);
 
         // Extract narrator from narrator search link
         const narratorText = $el.find('a[href*="searchNarrator="]').first().text().trim() ||
@@ -452,6 +501,7 @@ export class AudibleService {
           asin,
           title,
           author: authorText.replace('By:', '').replace('Written by:', '').trim(),
+          authorAsin: authorAsinMatch?.[1] || undefined,
           narrator: narratorText.replace('Narrated by:', '').trim(),
           coverArtUrl: coverArtUrl.replace(/\._.*_\./, '._SL500_.'),
           durationMinutes,
@@ -470,7 +520,7 @@ export class AudibleService {
         results: audiobooks,
         totalResults,
         page,
-        hasMore: audiobooks.length > 0 && totalResults > page * 20,
+        hasMore: audiobooks.length > 0 && totalResults > page * AUDIBLE_PAGE_SIZE,
       };
     } catch (error) {
       logger.error('Search failed', { error: error instanceof Error ? error.message : String(error) });
@@ -481,6 +531,129 @@ export class AudibleService {
         page,
         hasMore: false,
       };
+    }
+  }
+
+  /**
+   * Search for all books by a specific author, validated by ASIN.
+   * Uses Audible's searchAuthor parameter and paginates through all results.
+   * Filters: (1) author link must contain the target ASIN, (2) language must be English.
+   */
+  async searchByAuthorAsin(authorName: string, authorAsin: string): Promise<AudibleAudiobook[]> {
+    await this.initialize();
+
+    const MAX_PAGES = 10;
+    const allBooks: AudibleAudiobook[] = [];
+    const seenAsins = new Set<string>();
+
+    try {
+      logger.info(`Searching books by author "${authorName}" (ASIN: ${authorAsin})...`);
+
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const { data: response, meta } = await this.fetchWithRetry('/search', {
+          params: {
+            ipRedirectOverride: 'true',
+            searchAuthor: authorName,
+            pageSize: AUDIBLE_PAGE_SIZE,
+            page,
+          },
+        });
+
+        const $ = cheerio.load(response.data);
+        let pageResults = 0;
+
+        $('.s-result-item, .productListItem').each((_index, element) => {
+          const $el = $(element);
+
+          // --- Language filter: require explicit "English" ---
+          const langText = $el.find('span:contains("Language:")').text().trim() ||
+                           $el.find('.languageLabel').text().trim();
+          // Extract language value (e.g. "Language: English" → "English")
+          const langMatch = langText.match(/Language:\s*(.+)/i);
+          const language = langMatch?.[1]?.trim();
+          if (!language || language.toLowerCase() !== 'english') return;
+
+          // --- Author ASIN filter: verify target ASIN in author links ---
+          const authorLinks = $el.find('a[href*="/author/"]');
+          let hasMatchingAuthor = false;
+          authorLinks.each((_i, link) => {
+            const href = $(link).attr('href') || '';
+            const asinMatch = href.match(/\/author\/[^\/]+\/([A-Z0-9]{10})/);
+            if (asinMatch && asinMatch[1] === authorAsin) {
+              hasMatchingAuthor = true;
+              return false; // break .each()
+            }
+          });
+          if (!hasMatchingAuthor) return;
+
+          // --- Extract book ASIN ---
+          const bookAsin = $el.find('li').attr('data-asin') ||
+                           $el.find('a[href*="/pd/"]').attr('href')?.match(/\/pd\/[^\/]+\/([A-Z0-9]{10})/)?.[1] ||
+                           $el.find('a[href*="/ac/"]').attr('href')?.match(/\/ac\/[^\/]+\/([A-Z0-9]{10})/)?.[1] ||
+                           $el.find('a').attr('href')?.match(/\/(?:pd|ac)\/[^\/]+\/([A-Z0-9]{10})/)?.[1] || '';
+          if (!bookAsin || seenAsins.has(bookAsin)) return;
+          seenAsins.add(bookAsin);
+
+          // --- Parse book details ---
+          const title = $el.find('h2').first().text().trim() ||
+                        $el.find('h3 a').text().trim() ||
+                        $el.find('.bc-heading a').text().trim();
+
+          const authorText = $el.find('a[href*="/author/"]').first().text().trim() ||
+                             $el.find('.authorLabel').text().trim() ||
+                             $el.find('.bc-size-small .bc-text-bold').first().text().trim();
+
+          const narratorText = $el.find('a[href*="searchNarrator="]').first().text().trim() ||
+                               $el.find('.narratorLabel').text().trim();
+
+          const coverArtUrl = $el.find('img').attr('src') || '';
+
+          const runtimeText = $el.find('.runtimeLabel').text().trim() ||
+                              $el.find('span:contains("Length:")').text().trim();
+          const durationMinutes = this.parseRuntime(runtimeText);
+
+          const ratingText = $el.find('.ratingsLabel').text().trim() ||
+                             $el.find('.a-icon-star span').first().text().trim();
+          const rating = ratingText ? parseFloat(ratingText.split(' ')[0]) : undefined;
+
+          allBooks.push({
+            asin: bookAsin,
+            title,
+            author: authorText.replace('By:', '').replace('Written by:', '').trim(),
+            authorAsin,
+            narrator: narratorText.replace('Narrated by:', '').trim(),
+            coverArtUrl: coverArtUrl.replace(/\._.*_\./, '._SL500_.'),
+            durationMinutes,
+            rating,
+          });
+
+          pageResults++;
+        });
+
+        // Check if there are more pages
+        const resultsText = $('.resultsInfo').text().trim();
+        const totalResults = parseInt(resultsText.match(/of ([\d,]+)/)?.[1]?.replace(/,/g, '') || '0');
+        const hasMore = totalResults > page * AUDIBLE_PAGE_SIZE;
+
+        logger.info(`Author books page ${page}: ${pageResults} valid results (${allBooks.length} total, ${totalResults} Audible total)`);
+
+        if (!hasMore || pageResults === 0) break;
+
+        // Pace between pages
+        if (page < MAX_PAGES) {
+          await this.delay(this.pacer.reportPageResult(meta));
+        }
+      }
+
+      logger.info(`Author books search complete: "${authorName}" → ${allBooks.length} books`);
+      return allBooks;
+    } catch (error) {
+      logger.error(`Author books search failed for "${authorName}"`, {
+        error: error instanceof Error ? error.message : String(error),
+        collectedSoFar: allBooks.length,
+      });
+      // Return what we collected before the error
+      return allBooks;
     }
   }
 
@@ -593,6 +766,7 @@ export class AudibleService {
         asin,
         title: data.title || '',
         author: data.authors?.map((a: any) => a.name).join(', ') || '',
+        authorAsin: data.authors?.[0]?.asin || undefined,
         narrator: data.narrators?.map((n: any) => n.name).join(', ') || '',
         description: data.description || data.summary || '',
         coverArtUrl: data.image || '',
@@ -637,7 +811,7 @@ export class AudibleService {
    */
   private async scrapeAudibleDetails(asin: string): Promise<AudibleAudiobook | null> {
     try {
-      const response = await this.fetchWithRetry(`/pd/${asin}`, {
+      const { data: response } = await this.fetchWithRetry(`/pd/${asin}`, {
         params: {
           ipRedirectOverride: 'true', // Explicitly include to prevent IP-based region redirects
         },
@@ -751,6 +925,15 @@ export class AudibleService {
 
         result.author = result.author.replace(/^By:\s*/i, '').replace(/^Written by:\s*/i, '').trim();
         logger.info(` Author from HTML: "${result.author}"`);
+      }
+
+      // Author ASIN - extract from the first author link
+      if (!result.authorAsin) {
+        const firstAuthorHref = $('a[href*="/author/"]').first().attr('href') || '';
+        const authorAsinMatch = firstAuthorHref.match(/\/author\/[^\/]+\/([A-Z0-9]{10})/);
+        if (authorAsinMatch) {
+          result.authorAsin = authorAsinMatch[1];
+        }
       }
 
       // Narrator - try multiple approaches (only in product details area)

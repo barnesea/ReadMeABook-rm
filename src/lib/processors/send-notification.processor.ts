@@ -6,40 +6,35 @@
  * to all enabled backends subscribed to the event.
  */
 
-import { getNotificationService } from '../services/notification.service';
+import { getNotificationService } from '../services/notification';
 import { RMABLogger } from '../utils/logger';
+import type { SendNotificationPayload } from '../services/job-queue.service';
 
-export interface SendNotificationPayload {
-  jobId?: string;
-  event: 'request_pending_approval' | 'request_approved' | 'request_available' | 'request_error';
-  requestId: string;
-  title: string;
-  author: string;
-  userName: string;
-  message?: string;
-  timestamp: Date;
-}
+// Re-export for consumers that import from this module
+export type { SendNotificationPayload } from '../services/job-queue.service';
 
 /**
  * Process send notification job
  * Calls NotificationService to send notifications to all enabled backends
  */
 export async function processSendNotification(payload: SendNotificationPayload): Promise<void> {
-  const { event, requestId, title, author, userName, message, jobId } = payload;
+  const { event, requestId, issueId, title, author, userName, message, requestType, jobId } = payload;
 
   const logger = RMABLogger.forJob(jobId, 'SendNotification');
 
-  logger.info(`Processing notification: ${event}`, { requestId });
+  logger.info(`Processing notification: ${event}`, { requestId: requestId || issueId });
 
   try {
     const notificationService = getNotificationService();
     await notificationService.sendNotification({
       event,
       requestId,
+      issueId,
       title,
       author,
       userName,
       message,
+      requestType,
       timestamp: new Date(),
     });
 

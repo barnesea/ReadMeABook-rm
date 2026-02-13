@@ -5,6 +5,12 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const setupGuardPrismaMock = vi.hoisted(() => ({
+  configuration: {
+    findUnique: vi.fn(), // returns undefined by default = setup not complete
+  },
+}));
+
 const plexServiceMock = vi.hoisted(() => ({
   testConnection: vi.fn(),
   getLibraries: vi.fn(),
@@ -30,6 +36,9 @@ const fsMock = vi.hoisted(() => ({
 const configServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
 }));
+const downloadClientManagerMock = vi.hoisted(() => ({
+  testConnection: vi.fn(),
+}));
 
 vi.mock('@/lib/integrations/plex.service', () => ({
   getPlexService: () => plexServiceMock,
@@ -48,6 +57,13 @@ vi.mock('@/lib/integrations/sabnzbd.service', () => ({
   },
 }));
 
+vi.mock('@/lib/integrations/transmission.service', () => ({
+  TransmissionService: class {
+    constructor() {}
+    testConnection = vi.fn();
+  },
+}));
+
 vi.mock('@/lib/integrations/prowlarr.service', () => ({
   ProwlarrService: class {
     constructor() {}
@@ -59,10 +75,18 @@ vi.mock('openid-client', () => ({
   Issuer: issuerMock,
 }));
 
+vi.mock('@/lib/db', () => ({
+  prisma: setupGuardPrismaMock,
+}));
+
 vi.mock('fs/promises', () => ({ default: fsMock, ...fsMock, constants: { R_OK: 4 } }));
 
 vi.mock('@/lib/services/config.service', () => ({
   getConfigService: () => configServiceMock,
+}));
+
+vi.mock('@/lib/services/download-client-manager.service', () => ({
+  getDownloadClientManager: () => downloadClientManagerMock,
 }));
 
 describe('Setup test routes', () => {
@@ -135,7 +159,10 @@ describe('Setup test routes', () => {
   });
 
   it('tests qBittorrent credentials', async () => {
-    qbtMock.testConnectionWithCredentials.mockResolvedValue('4.0.0');
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: true,
+      message: 'Successfully connected to qBittorrent (v4.0.0)',
+    });
 
     const { POST } = await import('@/app/api/setup/test-download-client/route');
     const response = await POST({
@@ -149,13 +176,13 @@ describe('Setup test routes', () => {
     const payload = await response.json();
 
     expect(payload.success).toBe(true);
-    expect(payload.version).toBe('4.0.0');
+    expect(payload.message).toContain('4.0.0');
   });
 
   it('rejects invalid download client type', async () => {
     const { POST } = await import('@/app/api/setup/test-download-client/route');
     const response = await POST({
-      json: vi.fn().mockResolvedValue({ type: 'transmission', url: 'http://transmission' }),
+      json: vi.fn().mockResolvedValue({ type: 'deluge', url: 'http://deluge' }),
     } as any);
     const payload = await response.json();
 
@@ -163,7 +190,33 @@ describe('Setup test routes', () => {
     expect(payload.error).toMatch(/Invalid client type/);
   });
 
+  it('tests Transmission credentials', async () => {
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: true,
+      message: 'Successfully connected to Transmission (v4.0.5)',
+    });
+
+    const { POST } = await import('@/app/api/setup/test-download-client/route');
+    const response = await POST({
+      json: vi.fn().mockResolvedValue({
+        type: 'transmission',
+        url: 'http://transmission:9091',
+        username: 'user',
+        password: 'pass',
+      }),
+    } as any);
+    const payload = await response.json();
+
+    expect(payload.success).toBe(true);
+    expect(payload.message).toContain('Transmission');
+  });
+
   it('rejects missing SABnzbd API key', async () => {
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: false,
+      message: 'API key is required for SABnzbd',
+    });
+
     const { POST } = await import('@/app/api/setup/test-download-client/route');
     const response = await POST({
       json: vi.fn().mockResolvedValue({ type: 'sabnzbd', url: 'http://sab' }),
@@ -175,7 +228,10 @@ describe('Setup test routes', () => {
   });
 
   it('tests SABnzbd connection', async () => {
-    sabnzbdMock.testConnection.mockResolvedValue({ success: true, version: '3.0' });
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: true,
+      message: 'Successfully connected to SABnzbd (v3.0)',
+    });
 
     const { POST } = await import('@/app/api/setup/test-download-client/route');
     const response = await POST({
@@ -188,11 +244,14 @@ describe('Setup test routes', () => {
     const payload = await response.json();
 
     expect(payload.success).toBe(true);
-    expect(payload.version).toBe('3.0');
+    expect(payload.message).toContain('3.0');
   });
 
   it('returns error when SABnzbd connection fails', async () => {
-    sabnzbdMock.testConnection.mockResolvedValue({ success: false, error: 'bad key' });
+    downloadClientManagerMock.testConnection.mockResolvedValueOnce({
+      success: false,
+      message: 'bad key',
+    });
 
     const { POST } = await import('@/app/api/setup/test-download-client/route');
     const response = await POST({
@@ -204,7 +263,7 @@ describe('Setup test routes', () => {
     } as any);
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     expect(payload.error).toMatch(/bad key/);
   });
 

@@ -15,9 +15,8 @@ const configMock = vi.hoisted(() => ({
 }));
 const downloadClientManagerMock = vi.hoisted(() => ({
   getClientForProtocol: vi.fn(),
+  getClientServiceForProtocol: vi.fn(),
 }));
-const qbtMock = vi.hoisted(() => ({ getTorrent: vi.fn() }));
-const sabnzbdMock = vi.hoisted(() => ({ getNZB: vi.fn() }));
 
 vi.mock('@/lib/db', () => ({
   prisma: prismaMock,
@@ -35,20 +34,29 @@ vi.mock('@/lib/services/download-client-manager.service', () => ({
   getDownloadClientManager: () => downloadClientManagerMock,
 }));
 
-vi.mock('@/lib/integrations/qbittorrent.service', () => ({
-  getQBittorrentService: () => qbtMock,
-}));
-
-vi.mock('@/lib/integrations/sabnzbd.service', () => ({
-  getSABnzbdService: () => sabnzbdMock,
-}));
-
 describe('processRetryFailedImports', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('queues organize jobs using download client paths', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-1',
+        name: 'Book',
+        downloadPath: '/downloads/Book',
+        progress: 1.0,
+        status: 'completed',
+        size: 0,
+        bytesDownloaded: 0,
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-1',
       type: 'qbittorrent',
@@ -64,11 +72,6 @@ describe('processRetryFailedImports', () => {
         downloadHistory: [{ torrentHash: 'hash-1', torrentName: 'Book', downloadClient: 'qbittorrent' }],
       },
     ]);
-
-    qbtMock.getTorrent.mockResolvedValue({
-      save_path: '/downloads',
-      name: 'Book',
-    });
 
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
     const result = await processRetryFailedImports({ jobId: 'job-1' });
@@ -109,6 +112,12 @@ describe('processRetryFailedImports', () => {
   });
 
   it('falls back to configured download dir when qBittorrent lookup fails', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockRejectedValue(new Error('not found')),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-1',
       type: 'qbittorrent',
@@ -128,8 +137,6 @@ describe('processRetryFailedImports', () => {
       },
     ]);
 
-    qbtMock.getTorrent.mockRejectedValue(new Error('not found'));
-
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
     const result = await processRetryFailedImports({ jobId: 'job-3' });
 
@@ -142,6 +149,23 @@ describe('processRetryFailedImports', () => {
   });
 
   it('uses SABnzbd download path when available', async () => {
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'nzb-1',
+        name: 'Book',
+        downloadPath: '/remote/nzb/Book',
+        progress: 1.0,
+        status: 'completed',
+        size: 0,
+        bytesDownloaded: 0,
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-2',
       type: 'sabnzbd',
@@ -159,8 +183,6 @@ describe('processRetryFailedImports', () => {
       },
     ]);
 
-    sabnzbdMock.getNZB.mockResolvedValue({ downloadPath: '/remote/nzb/Book' });
-
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
     const result = await processRetryFailedImports({ jobId: 'job-4' });
 
@@ -173,6 +195,12 @@ describe('processRetryFailedImports', () => {
   });
 
   it('skips SABnzbd retries when download dir is missing', async () => {
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockResolvedValue(null),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-2',
       type: 'sabnzbd',
@@ -188,8 +216,6 @@ describe('processRetryFailedImports', () => {
         downloadHistory: [{ nzbId: 'nzb-2', torrentName: 'Book', downloadClient: 'sabnzbd' }],
       },
     ]);
-
-    sabnzbdMock.getNZB.mockResolvedValue(null);
 
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
     const result = await processRetryFailedImports({ jobId: 'job-5' });
@@ -222,6 +248,23 @@ describe('processRetryFailedImports', () => {
   });
 
   it('tracks skipped requests when organize job fails', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-7',
+        name: 'Book',
+        downloadPath: '/downloads/Book',
+        progress: 1.0,
+        status: 'completed',
+        size: 0,
+        bytesDownloaded: 0,
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-1',
       type: 'qbittorrent',
@@ -236,7 +279,6 @@ describe('processRetryFailedImports', () => {
         downloadHistory: [{ torrentHash: 'hash-7', torrentName: 'Book', downloadClient: 'qbittorrent' }],
       },
     ]);
-    qbtMock.getTorrent.mockResolvedValue({ save_path: '/downloads', name: 'Book' });
     jobQueueMock.addOrganizeJob.mockRejectedValue(new Error('queue down'));
 
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
@@ -247,6 +289,12 @@ describe('processRetryFailedImports', () => {
   });
 
   it('skips qBittorrent fallbacks when torrent name is missing', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockRejectedValue(new Error('not found')),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-1',
       type: 'qbittorrent',
@@ -261,7 +309,6 @@ describe('processRetryFailedImports', () => {
         downloadHistory: [{ torrentHash: 'hash-8', downloadClient: 'qbittorrent' }],
       },
     ]);
-    qbtMock.getTorrent.mockRejectedValue(new Error('not found'));
 
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
     const result = await processRetryFailedImports({ jobId: 'job-8' });
@@ -272,6 +319,12 @@ describe('processRetryFailedImports', () => {
   });
 
   it('skips qBittorrent fallbacks when download_dir is not configured', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockRejectedValue(new Error('not found')),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-1',
       type: 'qbittorrent',
@@ -287,7 +340,6 @@ describe('processRetryFailedImports', () => {
         downloadHistory: [{ torrentHash: 'hash-9', torrentName: 'Book', downloadClient: 'qbittorrent' }],
       },
     ]);
-    qbtMock.getTorrent.mockRejectedValue(new Error('not found'));
 
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
     const result = await processRetryFailedImports({ jobId: 'job-9' });
@@ -297,6 +349,12 @@ describe('processRetryFailedImports', () => {
   });
 
   it('skips SABnzbd retries when the client throws', async () => {
+    const sabClientMock = {
+      clientType: 'sabnzbd',
+      protocol: 'usenet',
+      getDownload: vi.fn().mockRejectedValue(new Error('sab down')),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(sabClientMock);
     downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
       id: 'client-2',
       type: 'sabnzbd',
@@ -312,13 +370,143 @@ describe('processRetryFailedImports', () => {
       },
     ]);
 
-    sabnzbdMock.getNZB.mockRejectedValue(new Error('sab down'));
-
     const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
     const result = await processRetryFailedImports({ jobId: 'job-10' });
 
     expect(result.triggered).toBe(0);
     expect(result.skipped).toBe(1);
+  });
+
+  it('uses stored downloadPath when client throws', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockRejectedValue(new Error('torrent removed')),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'qbittorrent',
+      name: 'qBittorrent',
+      enabled: true,
+      remotePathMappingEnabled: false,
+    });
+
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-stored-1',
+        audiobook: { id: 'a-stored-1', title: 'Freefall' },
+        downloadHistory: [{
+          torrentHash: 'hash-stored-1',
+          torrentName: 'Freefall: Expeditionary Force Mavericks, Book 2 - Craig Alanson',
+          downloadClient: 'qbittorrent',
+          downloadPath: '/downloads/Craig Alanson - Freefall Expeditionary Force Mavericks, Book 2',
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-stored-1' });
+
+    expect(result.triggered).toBe(1);
+    // Should use stored path, NOT the torrentName-based fallback
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-stored-1',
+      'a-stored-1',
+      '/downloads/Craig Alanson - Freefall Expeditionary Force Mavericks, Book 2'
+    );
+  });
+
+  it('falls back to torrentName when stored downloadPath is null', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockRejectedValue(new Error('torrent removed')),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'qbittorrent',
+      name: 'qBittorrent',
+      enabled: true,
+      remotePathMappingEnabled: false,
+    });
+    configMock.get.mockResolvedValue('/downloads');
+
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-stored-2',
+        audiobook: { id: 'a-stored-2', title: 'Book' },
+        downloadHistory: [{
+          torrentHash: 'hash-stored-2',
+          torrentName: 'Book',
+          downloadClient: 'qbittorrent',
+          downloadPath: null, // Old record without stored path
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-stored-2' });
+
+    expect(result.triggered).toBe(1);
+    // Should fall back to torrentName-based path
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-stored-2',
+      'a-stored-2',
+      '/downloads/Book'
+    );
+  });
+
+  it('prefers live client path over stored downloadPath', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-stored-3',
+        name: 'Book',
+        downloadPath: '/downloads/LivePath',
+        progress: 1.0,
+        status: 'completed',
+        size: 0,
+        bytesDownloaded: 0,
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'qbittorrent',
+      name: 'qBittorrent',
+      enabled: true,
+      remotePathMappingEnabled: false,
+    });
+
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-stored-3',
+        audiobook: { id: 'a-stored-3', title: 'Book' },
+        downloadHistory: [{
+          torrentHash: 'hash-stored-3',
+          torrentName: 'Book',
+          downloadClient: 'qbittorrent',
+          downloadPath: '/downloads/StoredPath',
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-stored-3' });
+
+    expect(result.triggered).toBe(1);
+    // Should use live client path, NOT stored path
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-stored-3',
+      'a-stored-3',
+      '/downloads/LivePath'
+    );
   });
 
   it('skips requests without download_dir when no client identifiers exist', async () => {
@@ -343,6 +531,226 @@ describe('processRetryFailedImports', () => {
 
     expect(result.triggered).toBe(0);
     expect(result.skipped).toBe(1);
+  });
+
+  // =========================================================================
+  // EBOOK REQUEST TESTS
+  // =========================================================================
+
+  it('retries ebook requests with direct download client using stored path', async () => {
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-ebook-1',
+        type: 'ebook',
+        audiobook: { id: 'a-ebook-1', title: 'Equal Rites' },
+        downloadHistory: [{
+          downloadClient: 'direct',
+          torrentName: 'Equal Rites - Terry Pratchett.epub',
+          downloadPath: '/downloads/Equal Rites - Terry Pratchett.epub',
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-ebook-1' });
+
+    expect(result.triggered).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-ebook-1',
+      'a-ebook-1',
+      '/downloads/Equal Rites - Terry Pratchett.epub'
+    );
+  });
+
+  it('retries ebook requests with direct download using fallback path', async () => {
+    configMock.get.mockResolvedValue('/downloads');
+
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-ebook-2',
+        type: 'ebook',
+        audiobook: { id: 'a-ebook-2', title: 'Equal Rites' },
+        downloadHistory: [{
+          downloadClient: 'direct',
+          torrentName: 'Equal Rites - Terry Pratchett.epub',
+          downloadPath: null, // No stored path
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-ebook-2' });
+
+    expect(result.triggered).toBe(1);
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-ebook-2',
+      'a-ebook-2',
+      '/downloads/Equal Rites - Terry Pratchett.epub'
+    );
+  });
+
+  it('skips direct ebook requests when no stored path and no download_dir', async () => {
+    configMock.get.mockResolvedValue(null);
+
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-ebook-3',
+        type: 'ebook',
+        audiobook: { id: 'a-ebook-3', title: 'Equal Rites' },
+        downloadHistory: [{
+          downloadClient: 'direct',
+          torrentName: 'Equal Rites - Terry Pratchett.epub',
+          downloadPath: null,
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-ebook-3' });
+
+    expect(result.triggered).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(jobQueueMock.addOrganizeJob).not.toHaveBeenCalled();
+  });
+
+  it('retries ebook requests downloaded via indexer (torrent client)', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-ebook-idx',
+        name: 'Equal Rites - Terry Pratchett (epub)',
+        downloadPath: '/downloads/Equal Rites - Terry Pratchett (epub)',
+        progress: 1.0,
+        status: 'completed',
+        size: 0,
+        bytesDownloaded: 0,
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'qbittorrent',
+      name: 'qBittorrent',
+      enabled: true,
+      remotePathMappingEnabled: false,
+    });
+
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-ebook-idx',
+        type: 'ebook',
+        audiobook: { id: 'a-ebook-idx', title: 'Equal Rites' },
+        downloadHistory: [{
+          torrentHash: 'hash-ebook-idx',
+          torrentName: 'Equal Rites - Terry Pratchett (epub)',
+          downloadClient: 'qbittorrent',
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-ebook-idx' });
+
+    expect(result.triggered).toBe(1);
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-ebook-idx',
+      'a-ebook-idx',
+      '/downloads/Equal Rites - Terry Pratchett (epub)'
+    );
+  });
+
+  it('processes mixed audiobook and ebook requests in same batch', async () => {
+    const qbtClientMock = {
+      clientType: 'qbittorrent',
+      protocol: 'torrent',
+      getDownload: vi.fn().mockResolvedValue({
+        id: 'hash-audio',
+        name: 'Gideon the Ninth',
+        downloadPath: '/downloads/Gideon the Ninth',
+        progress: 1.0,
+        status: 'completed',
+        size: 0,
+        bytesDownloaded: 0,
+        downloadSpeed: 0,
+        eta: 0,
+        category: 'readmeabook',
+      }),
+    };
+    downloadClientManagerMock.getClientServiceForProtocol.mockResolvedValue(qbtClientMock);
+    downloadClientManagerMock.getClientForProtocol.mockResolvedValue({
+      id: 'client-1',
+      type: 'qbittorrent',
+      name: 'qBittorrent',
+      enabled: true,
+      remotePathMappingEnabled: false,
+    });
+
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-mixed-audio',
+        type: 'audiobook',
+        audiobook: { id: 'a-mixed-audio', title: 'Gideon the Ninth' },
+        downloadHistory: [{
+          torrentHash: 'hash-audio',
+          torrentName: 'Gideon the Ninth',
+          downloadClient: 'qbittorrent',
+        }],
+      },
+      {
+        id: 'req-mixed-ebook',
+        type: 'ebook',
+        audiobook: { id: 'a-mixed-ebook', title: 'Equal Rites' },
+        downloadHistory: [{
+          downloadClient: 'direct',
+          torrentName: 'Equal Rites - Terry Pratchett.epub',
+          downloadPath: '/downloads/Equal Rites - Terry Pratchett.epub',
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-mixed' });
+
+    expect(result.triggered).toBe(2);
+    expect(result.skipped).toBe(0);
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledTimes(2);
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-mixed-audio',
+      'a-mixed-audio',
+      '/downloads/Gideon the Ninth'
+    );
+    expect(jobQueueMock.addOrganizeJob).toHaveBeenCalledWith(
+      'req-mixed-ebook',
+      'a-mixed-ebook',
+      '/downloads/Equal Rites - Terry Pratchett.epub'
+    );
+  });
+
+  it('skips direct ebook requests with no torrentName and no stored path', async () => {
+    prismaMock.request.findMany.mockResolvedValue([
+      {
+        id: 'req-ebook-noname',
+        type: 'ebook',
+        audiobook: { id: 'a-ebook-noname', title: 'Book' },
+        downloadHistory: [{
+          downloadClient: 'direct',
+          torrentName: null,
+          downloadPath: null,
+        }],
+      },
+    ]);
+
+    const { processRetryFailedImports } = await import('@/lib/processors/retry-failed-imports.processor');
+    const result = await processRetryFailedImports({ jobId: 'job-ebook-noname' });
+
+    expect(result.triggered).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(jobQueueMock.addOrganizeJob).not.toHaveBeenCalled();
   });
 });
 

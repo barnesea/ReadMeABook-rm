@@ -14,7 +14,8 @@ interface AudiobookshelfStepProps {
   absApiToken: string;
   absLibraryId: string;
   absTriggerScanAfterImport: boolean;
-  onUpdate: (field: string, value: string | boolean) => void;
+  absLibraries: Library[];
+  onUpdate: (field: string, value: any) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -30,6 +31,7 @@ export function AudiobookshelfStep({
   absApiToken,
   absLibraryId,
   absTriggerScanAfterImport,
+  absLibraries,
   onUpdate,
   onNext,
   onBack,
@@ -39,8 +41,12 @@ export function AudiobookshelfStep({
     success: boolean;
     message?: string;
     libraries?: Library[];
-  } | null>(null);
-  const [libraries, setLibraries] = useState<Library[]>([]);
+  } | null>(
+    absLibraries.length > 0
+      ? { success: true, message: 'Connection verified previously.' }
+      : null
+  );
+  const [libraries, setLibraries] = useState<Library[]>(absLibraries);
 
   const testConnection = async () => {
     setTesting(true);
@@ -56,12 +62,14 @@ export function AudiobookshelfStep({
       const data = await response.json();
 
       if (response.ok && data.success) {
+        const libs = data.libraries || [];
         setTestResult({
           success: true,
           message: 'Connection successful!',
-          libraries: data.libraries || [],
+          libraries: libs,
         });
-        setLibraries(data.libraries || []);
+        setLibraries(libs);
+        onUpdate('absLibraries', libs);
       } else {
         setTestResult({
           success: false,
