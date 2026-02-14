@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
             requestLimitEnabled: true,
             requestLimitCount: true,
             requestLimitPeriod: true,
+            interactiveSearchAccess: true,
             _count: {
               select: {
                 requests: true,

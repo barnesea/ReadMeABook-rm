@@ -54,3 +54,8 @@ next-env.d.ts
 /pgdata
 /test-media
 /test-data
+.roomodes
+.roo/rules-merge-resolver/1_workflow.xml
+.roo/rules-merge-resolver/2_best_practices.xml
+.roo/rules-merge-resolver/3_tool_usage.xml
+.roo/rules-merge-resolver/4_complete_example.xml

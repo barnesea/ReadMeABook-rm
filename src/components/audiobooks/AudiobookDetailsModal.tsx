@@ -28,6 +28,7 @@ interface AudiobookDetailsModalProps {
   isAvailable?: boolean;
   requestedByUsername?: string | null;
   hideRequestActions?: boolean;
+  hasReportedIssue?: boolean;
 }
 
 // Status helper
@@ -66,6 +67,7 @@ export function AudiobookDetailsModal({
   isAvailable = false,
   requestedByUsername = null,
   hideRequestActions = false,
+  hasReportedIssue = false,
 }: AudiobookDetailsModalProps) {
   const { user } = useAuth();
   const { squareCovers } = usePreferences();

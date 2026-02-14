@@ -28,6 +28,7 @@ interface User {
   requestLimitEnabled: boolean;
   requestLimitCount: number;
   requestLimitPeriod: number;
+  interactiveSearchAccess: boolean | null;
   _count: {
     requests: number;
   };

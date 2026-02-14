@@ -58,6 +58,9 @@ model User {
   requestLimitCount   Int     @default(0) @map("request_limit_count")     // Max requests per period (0 = unlimited)
   requestLimitPeriod  Int     @default(0) @map("request_limit_period")    // Period in days (0 = unlimited)
 
+  // Fine-grained permissions
+  interactiveSearchAccess Boolean? @map("interactive_search_access") // null = use global setting, true = allow, false = deny
+
   // Soft delete support
   deletedAt DateTime? @map("deleted_at")
   deletedBy String?   @map("deleted_by") // Admin user ID who deleted this user
@@ -66,6 +69,9 @@ model User {
   requests                Request[]
   bookDateRecommendations BookDateRecommendation[]
   bookDateSwipes          BookDateSwipe[]
+  goodreadsShelves        GoodreadsShelf[]
+  reportedIssues          ReportedIssue[] @relation("ReportedIssueReporter")
+  resolvedIssues          ReportedIssue[] @relation("ReportedIssueResolvedBy")
 
   @@index([plexId])
   @@index([role])
@@ -199,7 +205,8 @@ model Audiobook {
   completedAt DateTime? @map("completed_at")
 
   // Relations
-  requests Request[]
+  requests        Request[]
+  reportedIssues  ReportedIssue[]
 
   @@index([audibleAsin])
   @@index([plexGuid])
@@ -280,6 +287,7 @@ model DownloadHistory {
   downloadStatus   String?   @map("download_status")
   // Status values: queued, downloading, completed, failed, stalled
   downloadError    String?   @map("download_error") @db.Text
+  downloadPath     String?   @map("download_path") @db.Text // Local path after remote-to-local mapping
   startedAt        DateTime? @map("started_at")
   completedAt      DateTime? @map("completed_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -456,4 +464,86 @@ model NotificationBackend {
 
   @@index([enabled])
   @@map("notification_backends")
+}
+
+// ============================================================================
+// GOODREADS SHELF TABLE
+// User's Goodreads shelf subscriptions for automatic audiobook matching
+// ============================================================================
+model GoodreadsShelf {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  rssUrl      String   @map("rss_url")
+  bookCount   Int?     @map("book_count")
+  coverUrls   String?  @map("cover_urls") @db.Text // JSON array of {coverUrl,asin,title,author}
+  lastSyncAt  DateTime? @map("last_sync_at")
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookMappings GoodreadsBookMapping[]
+
+  @@unique([userId, rssUrl])
+  @@index([userId])
+  @@index([name])
+  @@index([enabled])
+  @@map("goodreads_shelves")
+}
+
+// ============================================================================
+// REPORTED ISSUE TABLE
+// User-reported problems with available audiobooks
+// ============================================================================
+model ReportedIssue {
+  id           String   @id @default(uuid())
+  audiobookId  String   @map("audiobook_id")
+  reporterId   String   @map("reporter_id")
+  reason       String   @db.Text
+  status       String   @default("open") // 'open', 'dismissed', 'replaced'
+  resolvedById String?  @map("resolved_by_id")
+  resolvedAt   DateTime? @map("resolved_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  audiobook  Audiobook @relation(fields: [audiobookId], references: [id], onDelete: Cascade)
+  reporter   User      @relation("ReportedIssueReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy User?    @relation("ReportedIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([audiobookId])
+  @@index([reporterId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("reported_issues")
+}
+
+// ============================================================================
+// GOODREADS BOOK MAPPING TABLE
+// Maps Goodreads book IDs to Audible ASINs for automatic request creation
+// ============================================================================
+model GoodreadsBookMapping {
+  id              String   @id @default(uuid())
+  shelfId         String   @map("shelf_id")
+  goodreadsBookId String   @map("goodreads_book_id") // Goodreads book ID from RSS
+  audibleAsin     String?  @map("audible_asin") // Resolved Audible ASIN (null = no match)
+  title           String
+  author          String
+  coverUrl        String?  @map("cover_url") @db.Text
+  noMatch         Boolean  @default(false) // True if Audible lookup found no match
+  lastSearchAt    DateTime? @map("last_search_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  shelf GoodreadsShelf @relation(fields: [shelfId], references: [id], onDelete: Cascade)
+
+  @@unique([goodreadsBookId])
+  @@index([goodreadsBookId])
+  @@index([audibleAsin])
+  @@index([noMatch])
+  @@index([shelfId])
+  @@map("goodreads_book_mappings")
 }

@@ -58,9 +58,14 @@ export async function processSearchIndexers(payload: SearchIndexersPayload): Pro
 
     // Group indexers by their category configuration
     // This minimizes API calls while ensuring each indexer only searches its configured categories
-    const groups = groupIndexersByCategories(indexersConfig);
+    const { groups, skippedIndexers } = groupIndexersByCategories(indexersConfig);
 
     logger.info(`Searching ${indexersConfig.length} enabled indexers in ${groups.length} group${groups.length > 1 ? 's' : ''}`);
+
+    // Log skipped indexers
+    if (skippedIndexers.length > 0) {
+      logger.info(`Skipped ${skippedIndexers.length} indexers with no categories configured`);
+    }
 
     // Log each group for transparency
     groups.forEach((group, index) => {

@@ -168,7 +168,7 @@ async function processShelf(
         continue; // Will be resolved in a future cycle
       }
 
-      mapping = await performAudibleLookup(book, log);
+      mapping = await performAudibleLookup(book, log, undefined, shelf.id);
       lookupsThisCycle++;
       stats.lookupsPerformed++;
 
@@ -284,7 +284,8 @@ async function processShelf(
 async function performAudibleLookup(
   book: GoodreadsRssBook,
   log: ReturnType<typeof RMABLogger.forJob> | ReturnType<typeof RMABLogger.create>,
-  existingMappingId?: string
+  existingMappingId?: string,
+  shelfId?: string
 ): Promise<any> {
   const audibleService = getAudibleService();
 
@@ -325,7 +326,7 @@ async function performAudibleLookup(
         return prisma.goodreadsBookMapping.update({ where: { id: existingMappingId }, data });
       }
       return prisma.goodreadsBookMapping.create({
-        data: { goodreadsBookId: book.bookId, ...data },
+        data: { shelfId: shelfId!, goodreadsBookId: book.bookId, ...data },
       });
     }
 
@@ -345,7 +346,7 @@ async function performAudibleLookup(
       return prisma.goodreadsBookMapping.update({ where: { id: existingMappingId }, data: noMatchData });
     }
     return prisma.goodreadsBookMapping.create({
-      data: { goodreadsBookId: book.bookId, ...noMatchData },
+      data: { shelfId: shelfId!, goodreadsBookId: book.bookId, ...noMatchData },
     });
   } catch (error) {
     log.error(`Audible lookup failed for "${book.title}": ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -363,7 +364,7 @@ async function performAudibleLookup(
       return prisma.goodreadsBookMapping.update({ where: { id: existingMappingId }, data: errorData });
     }
     return prisma.goodreadsBookMapping.create({
-      data: { goodreadsBookId: book.bookId, ...errorData },
+      data: { shelfId: shelfId!, goodreadsBookId: book.bookId, ...errorData },
     });
   }
 }

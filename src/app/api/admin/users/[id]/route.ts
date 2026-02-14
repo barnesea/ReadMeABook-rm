@@ -130,6 +130,7 @@ export async function PUT(
           requestLimitEnabled?: boolean;
           requestLimitCount?: number;
           requestLimitPeriod?: number;
+          interactiveSearchAccess?: boolean | null;
         } = { role };
         if (autoApproveRequests !== undefined) {
           updateData.autoApproveRequests = autoApproveRequests;
@@ -156,6 +157,7 @@ export async function PUT(
             requestLimitEnabled: true,
             requestLimitCount: true,
             requestLimitPeriod: true,
+            interactiveSearchAccess: true,
           },
         });
 
