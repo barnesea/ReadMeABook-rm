@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '@/lib/middleware/auth';
 import { prisma } from '@/lib/db';
 import { getEncryptionService } from '@/lib/services/encryption.service';
+import { invalidateProwlarrService } from '@/lib/integrations/prowlarr.service';
 import { RMABLogger } from '@/lib/utils/logger';
 
 const logger = RMABLogger.create('API.Admin.Settings.Prowlarr');
@@ -41,6 +42,9 @@ export async function PUT(request: NextRequest) {
             create: { key: 'prowlarr_api_key', value: encryptedApiKey, encrypted: true },
           });
         }
+
+        // Invalidate cached singleton so background jobs use new credentials
+        invalidateProwlarrService();
 
         logger.info('Prowlarr settings updated');
 

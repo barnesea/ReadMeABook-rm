@@ -5,30 +5,50 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { fetchWithAuth } from '@/lib/utils/api';
 import type { TestResult } from '../../lib/types';
 
 interface UseIndexersSettingsProps {
   prowlarrUrl: string;
   prowlarrApiKey: string;
+  originalProwlarrUrl: string;
+  originalProwlarrApiKey: string;
+  configuredIndexersCount: number;
   onValidationChange: (isValid: boolean) => void;
   onRefreshIndexers?: () => Promise<void>;
+  onClearIndexers: () => void;
 }
 
 export function useIndexersSettings({
   prowlarrUrl,
   prowlarrApiKey,
+  originalProwlarrUrl,
+  originalProwlarrApiKey,
+  configuredIndexersCount,
   onValidationChange,
   onRefreshIndexers,
+  onClearIndexers,
 }: UseIndexersSettingsProps) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [showConnectionChangeConfirm, setShowConnectionChangeConfirm] = useState(false);
 
   /**
-   * Test Prowlarr connection
+   * Detect if the Prowlarr URL or API key has changed from the saved values.
+   * A masked API key (starting with dots) means the user hasn't touched it.
    */
-  const testConnection = async () => {
+  const hasConnectionChanged = useCallback((): boolean => {
+    const urlChanged = prowlarrUrl.trim() !== originalProwlarrUrl.trim();
+    const apiKeyChanged = !prowlarrApiKey.startsWith('••••') &&
+      prowlarrApiKey !== originalProwlarrApiKey;
+    return urlChanged || apiKeyChanged;
+  }, [prowlarrUrl, prowlarrApiKey, originalProwlarrUrl, originalProwlarrApiKey]);
+
+  /**
+   * Execute the actual Prowlarr connection test
+   */
+  const executeTest = async (shouldClearIndexers: boolean) => {
     setTesting(true);
     setTestResult(null);
 
@@ -46,14 +66,23 @@ export function useIndexersSettings({
 
       if (data.success) {
         onValidationChange(true);
-        setTestResult({
-          success: true,
-          message: `Connected to Prowlarr. Found ${data.indexers?.length || 0} indexers`,
-        });
 
-        // Refresh indexers from database if callback provided
-        if (onRefreshIndexers) {
-          await onRefreshIndexers();
+        if (shouldClearIndexers) {
+          onClearIndexers();
+          setTestResult({
+            success: true,
+            message: `Connected to Prowlarr. Found ${data.indexers?.length || 0} indexers. Previous indexer configurations have been removed — please re-add indexers from the new instance.`,
+          });
+        } else {
+          setTestResult({
+            success: true,
+            message: `Connected to Prowlarr. Found ${data.indexers?.length || 0} indexers`,
+          });
+
+          // Refresh indexers from database if callback provided
+          if (onRefreshIndexers) {
+            await onRefreshIndexers();
+          }
         }
       } else {
         onValidationChange(false);
@@ -74,9 +103,41 @@ export function useIndexersSettings({
     }
   };
 
+  /**
+   * Handle test connection click — shows confirmation if credentials changed
+   * and there are existing configured indexers.
+   */
+  const testConnection = async () => {
+    if (hasConnectionChanged() && configuredIndexersCount > 0) {
+      setShowConnectionChangeConfirm(true);
+      return;
+    }
+
+    await executeTest(false);
+  };
+
+  /**
+   * User confirmed the credential change — proceed with test and clear indexers on success
+   */
+  const confirmConnectionChange = async () => {
+    setShowConnectionChangeConfirm(false);
+    await executeTest(true);
+  };
+
+  /**
+   * User cancelled the credential change confirmation
+   */
+  const cancelConnectionChange = () => {
+    setShowConnectionChangeConfirm(false);
+  };
+
   return {
     testing,
     testResult,
     testConnection,
+    showConnectionChangeConfirm,
+    confirmConnectionChange,
+    cancelConnectionChange,
+    configuredIndexersCount,
   };
 }

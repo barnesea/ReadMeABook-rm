@@ -296,6 +296,7 @@ export default function AdminSettings() {
           {activeTab === 'prowlarr' && (
             <IndexersTab
               settings={settings}
+              originalSettings={originalSettings}
               indexers={configuredIndexers}
               flagConfigs={flagConfigs}
               onChange={setSettings}

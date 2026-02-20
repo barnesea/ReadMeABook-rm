@@ -27,12 +27,10 @@ const parseTorrent = (parseTorrentModule as any).default || parseTorrentModule;
 const logger = RMABLogger.create('QBittorrent');
 
 export interface AddTorrentOptions {
-  savePath?: string;
   category?: string;
   tags?: string[];
   paused?: boolean;
   skipChecking?: boolean;
-  sequentialDownload?: boolean;
 }
 
 export interface TorrentInfo {
@@ -276,7 +274,7 @@ export class QBittorrentService implements IDownloadClient {
   /**
    * Add magnet link - hash is extractable from URI (deterministic)
    */
-  private async addMagnetLink(
+  protected async addMagnetLink(
     magnetUrl: string,
     category: string,
     options?: AddTorrentOptions
@@ -299,20 +297,18 @@ export class QBittorrentService implements IDownloadClient {
       // Torrent doesn't exist, continue with adding
     }
 
-    // Apply reverse path mapping (local → remote) to savepath
-    const localSavePath = options?.savePath || this.defaultSavePath;
-    const remoteSavePath = PathMapper.reverseTransform(localSavePath, this.pathMappingConfig);
-
     // Upload via 'urls' parameter
-    // Set ratioLimit and seedingTimeLimit to -1 (unlimited) so qBittorrent's
+    // Note: savepath is intentionally omitted — the category (managed by ensureCategory)
+    // defines the save path. Omitting per-torrent savepath allows qBittorrent to use
+    // Automatic Torrent Management, respecting the user's "incomplete downloads" temp folder.
+    // sequentialDownload is also omitted — left to qBittorrent's own settings.
+    // ratioLimit and seedingTimeLimit are set to -1 (unlimited) so qBittorrent's
     // global seeding rules don't remove the torrent prematurely.
     // RMAB manages torrent lifecycle via the cleanup-seeded-torrents processor.
     const form = new URLSearchParams({
       urls: magnetUrl,
-      savepath: remoteSavePath,
       category,
       paused: options?.paused ? 'true' : 'false',
-      sequentialDownload: (options?.sequentialDownload !== false).toString(),
       ratioLimit: '-1',
       seedingTimeLimit: '-1',
     });
@@ -341,7 +337,7 @@ export class QBittorrentService implements IDownloadClient {
   /**
    * Add .torrent file - download, parse, extract hash, upload content (deterministic)
    */
-  private async addTorrentFile(
+  protected async addTorrentFile(
     torrentUrl: string,
     category: string,
     options?: AddTorrentOptions
@@ -446,11 +442,13 @@ export class QBittorrentService implements IDownloadClient {
       // Torrent doesn't exist, continue with adding
     }
 
-    // Apply reverse path mapping (local → remote) to savepath
-    const localSavePath = options?.savePath || this.defaultSavePath;
-    const remoteSavePath = PathMapper.reverseTransform(localSavePath, this.pathMappingConfig);
-
     // Upload .torrent file content via multipart/form-data
+    // Note: savepath is intentionally omitted — the category (managed by ensureCategory)
+    // defines the save path. Omitting per-torrent savepath allows qBittorrent to use
+    // Automatic Torrent Management, respecting the user's "incomplete downloads" temp folder.
+    // sequentialDownload is also omitted — left to qBittorrent's own settings.
+    // ratioLimit and seedingTimeLimit override qBittorrent's global seeding rules —
+    // RMAB manages torrent lifecycle via the cleanup-seeded-torrents processor.
     const formData = new FormData();
 
     const filename = parsedTorrent.name ? `${parsedTorrent.name}.torrent` : 'torrent.torrent';
@@ -458,11 +456,8 @@ export class QBittorrentService implements IDownloadClient {
       filename,
       contentType: 'application/x-bittorrent',
     });
-    formData.append('savepath', remoteSavePath);
     formData.append('category', category);
     formData.append('paused', options?.paused ? 'true' : 'false');
-    formData.append('sequentialDownload', (options?.sequentialDownload !== false).toString());
-    // Override qBittorrent's global seeding rules — RMAB manages torrent lifecycle
     formData.append('ratioLimit', '-1');
     formData.append('seedingTimeLimit', '-1');
 
@@ -494,7 +489,7 @@ export class QBittorrentService implements IDownloadClient {
    * Checks existing categories first, then creates or updates as needed
    * Applies reverse path mapping (local → remote) for remote seedbox scenarios
    */
-  private async ensureCategory(category: string): Promise<void> {
+  protected async ensureCategory(category: string): Promise<void> {
     if (!this.cookie) {
       await this.login();
     }
@@ -1013,7 +1008,6 @@ export class QBittorrentService implements IDownloadClient {
       category: options?.category,
       paused: options?.paused,
       tags: ['audiobook'],
-      sequentialDownload: true,
     });
   }
 
@@ -1081,7 +1075,7 @@ export class QBittorrentService implements IDownloadClient {
   /**
    * Map a TorrentInfo object to the unified DownloadInfo format.
    */
-  private mapTorrentToDownloadInfo(torrent: TorrentInfo): DownloadInfo {
+  protected mapTorrentToDownloadInfo(torrent: TorrentInfo): DownloadInfo {
     return {
       id: torrent.hash,
       name: torrent.name,
@@ -1194,7 +1188,7 @@ export class QBittorrentService implements IDownloadClient {
   /**
    * Extract info_hash from magnet link
    */
-  private extractHashFromMagnet(magnetUrl: string): string | null {
+  protected extractHashFromMagnet(magnetUrl: string): string | null {
     // Extract hash from magnet:?xt=urn:btih:HASH
     const match = magnetUrl.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})/i);
     if (match) {

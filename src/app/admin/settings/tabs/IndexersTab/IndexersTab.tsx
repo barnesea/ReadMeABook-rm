@@ -7,6 +7,7 @@
 
 import React, { useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { Input } from '@/components/ui/Input';
 import { IndexerManagement } from '@/components/admin/indexers/IndexerManagement';
 import { FlagConfigRow } from '@/components/admin/FlagConfigRow';
@@ -16,6 +17,7 @@ import type { Settings, SavedIndexerConfig } from '../../lib/types';
 
 interface IndexersTabProps {
   settings: Settings;
+  originalSettings: Settings | null;
   indexers: SavedIndexerConfig[];
   flagConfigs: IndexerFlagConfig[];
   onChange: (settings: Settings) => void;
@@ -27,6 +29,7 @@ interface IndexersTabProps {
 
 export function IndexersTab({
   settings,
+  originalSettings,
   indexers,
   flagConfigs,
   onChange,
@@ -35,11 +38,23 @@ export function IndexersTab({
   onValidationChange,
   onRefreshIndexers,
 }: IndexersTabProps) {
-  const { testing, testResult, testConnection } = useIndexersSettings({
+  const {
+    testing,
+    testResult,
+    testConnection,
+    showConnectionChangeConfirm,
+    confirmConnectionChange,
+    cancelConnectionChange,
+    configuredIndexersCount,
+  } = useIndexersSettings({
     prowlarrUrl: settings.prowlarr.url,
     prowlarrApiKey: settings.prowlarr.apiKey,
+    originalProwlarrUrl: originalSettings?.prowlarr.url ?? '',
+    originalProwlarrApiKey: originalSettings?.prowlarr.apiKey ?? '',
+    configuredIndexersCount: indexers.length,
     onValidationChange,
     onRefreshIndexers,
+    onClearIndexers: () => onIndexersChange([]),
   });
 
   // Auto-load indexers when component mounts if prowlarr is configured
@@ -96,7 +111,7 @@ export function IndexersTab({
           placeholder="Enter API key"
         />
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Found in Prowlarr Settings → General → Security → API Key
+          Found in Prowlarr Settings &rarr; General &rarr; Security &rarr; API Key
         </p>
       </div>
 
@@ -178,6 +193,19 @@ export function IndexersTab({
           </p>
         )}
       </div>
+
+      {/* Confirmation modal for Prowlarr connection change */}
+      <ConfirmModal
+        isOpen={showConnectionChangeConfirm}
+        onClose={cancelConnectionChange}
+        onConfirm={confirmConnectionChange}
+        title="Prowlarr Connection Change"
+        message={`Changing your Prowlarr connection will remove your ${configuredIndexersCount} configured indexer${configuredIndexersCount === 1 ? '' : 's'}. Indexer IDs are specific to each Prowlarr instance, so existing configurations cannot be preserved. You will need to re-add indexers from the new instance after saving.`}
+        confirmText="Continue"
+        cancelText="Cancel"
+        variant="danger"
+        isLoading={testing}
+      />
     </div>
   );
 }

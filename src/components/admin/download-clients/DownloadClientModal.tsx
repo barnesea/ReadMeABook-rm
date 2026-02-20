@@ -286,7 +286,7 @@ export function DownloadClientModal({
         remotePath: remotePathMappingEnabled ? remotePath : undefined,
         localPath: remotePathMappingEnabled ? localPath : undefined,
         category,
-        customPath: sanitizedCustomPath || undefined,
+        customPath: sanitizedCustomPath,
         postImportCategory,
       };
 
@@ -338,7 +338,7 @@ export function DownloadClientModal({
           <Input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder={type === 'transmission' ? 'http://localhost:9091' : type === 'qbittorrent' ? 'http://localhost:8080' : type === 'nzbget' ? 'http://localhost:6789' : 'http://localhost:8081'}
+            placeholder={type === 'rdtclient' ? 'http://localhost:6500' : type === 'transmission' ? 'http://localhost:9091' : type === 'qbittorrent' ? 'http://localhost:8080' : type === 'nzbget' ? 'http://localhost:6789' : 'http://localhost:8081'}
             error={errors.url}
           />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">

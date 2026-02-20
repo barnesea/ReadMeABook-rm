@@ -253,7 +253,7 @@ export function DownloadClientManagement({
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
           Add Download Client
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* qBittorrent Card */}
           <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6${hasTorrentClient ? ' opacity-50' : ''}`}>
             <div className="flex items-start justify-between mb-3">
@@ -312,6 +312,37 @@ export function DownloadClientManagement({
                 disabled={loading}
               >
                 Add Transmission
+              </Button>
+            )}
+          </div>
+
+          {/* RDT-Client Card */}
+          <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-6${hasTorrentClient ? ' opacity-50' : ''}`}>
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                  RDT-Client
+                </h4>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Torrent / Debrid
+                </p>
+              </div>
+              <span className="inline-block text-xs px-2 py-1 rounded bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 font-medium">
+                Torrent
+              </span>
+            </div>
+            {hasTorrentClient ? (
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Protocol already configured
+              </div>
+            ) : (
+              <Button
+                onClick={() => handleAddClient('rdtclient')}
+                variant="primary"
+                size="sm"
+                disabled={loading}
+              >
+                Add RDT-Client
               </Button>
             )}
           </div>

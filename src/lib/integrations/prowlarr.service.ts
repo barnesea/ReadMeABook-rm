@@ -640,6 +640,18 @@ export class ProwlarrService {
 // Singleton instance
 let prowlarrService: ProwlarrService | null = null;
 
+/**
+ * Invalidate the cached ProwlarrService singleton.
+ * Must be called after updating Prowlarr URL or API key so that
+ * background jobs (search, RSS monitor, etc.) pick up the new credentials.
+ */
+export function invalidateProwlarrService(): void {
+  if (prowlarrService) {
+    logger.info('Prowlarr service singleton invalidated — will reconnect with new credentials on next use');
+  }
+  prowlarrService = null;
+}
+
 export async function getProwlarrService(): Promise<ProwlarrService> {
   if (!prowlarrService) {
     // Get configuration from database

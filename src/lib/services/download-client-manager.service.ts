@@ -16,6 +16,7 @@ import { QBittorrentService } from '@/lib/integrations/qbittorrent.service';
 import { SABnzbdService } from '@/lib/integrations/sabnzbd.service';
 import { NZBGetService } from '@/lib/integrations/nzbget.service';
 import { TransmissionService } from '@/lib/integrations/transmission.service';
+import { RDTClientService } from '@/lib/integrations/rdtclient.service';
 import { PathMappingConfig } from '@/lib/utils/path-mapper';
 import { IDownloadClient, DownloadClientType, ProtocolType, CLIENT_PROTOCOL_MAP, getClientDisplayName } from '@/lib/interfaces/download-client.interface';
 
@@ -193,6 +194,8 @@ export class DownloadClientManager {
         return this.createNZBGetService(config, downloadDir);
       case 'transmission':
         return this.createTransmissionService(config, downloadDir);
+      case 'rdtclient':
+        return this.createRDTClientService(config, downloadDir);
       default:
         throw new Error(`Unsupported download client type: ${config.type}`);
     }
@@ -325,6 +328,29 @@ export class DownloadClientManager {
       : undefined;
 
     return new TransmissionService(
+      config.url,
+      config.username || '',
+      config.password || '',
+      downloadDir,
+      config.category || 'readmeabook',
+      config.disableSSLVerify,
+      pathMapping
+    );
+  }
+
+  /**
+   * Create RDT-Client service instance (same constructor as qBittorrent — identical API)
+   */
+  private createRDTClientService(config: DownloadClientConfig, downloadDir: string): RDTClientService {
+    const pathMapping: PathMappingConfig | undefined = config.remotePathMappingEnabled && config.remotePath && config.localPath
+      ? {
+          enabled: true,
+          remotePath: config.remotePath,
+          localPath: config.localPath,
+        }
+      : undefined;
+
+    return new RDTClientService(
       config.url,
       config.username || '',
       config.password || '',
